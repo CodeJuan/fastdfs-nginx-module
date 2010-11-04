@@ -3,6 +3,7 @@
 #include <ngx_http.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "common.c"
 
 #define OUT_BUFSIZE 256
 
@@ -10,9 +11,6 @@ static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 
 static ngx_int_t ngx_http_fastdfs_process_init(ngx_cycle_t *cycle);
 static void ngx_http_fastdfs_process_exit(ngx_cycle_t *cycle);
-
-static ngx_int_t make_http_header(ngx_http_request_t *r);
-static ngx_int_t make_http_get_body(ngx_http_request_t *r, char *out_buf);
 
 /* Commands */
 static ngx_command_t  ngx_http_fastdfs_commands[] = {
@@ -65,167 +63,162 @@ ngx_module_t  ngx_http_fastdfs_module = {
     NGX_MODULE_V1_PADDING
 };
 
-/* setting header for no-cache */
-static ngx_int_t make_http_header(ngx_http_request_t *r){
-    ngx_uint_t        i;
-    ngx_table_elt_t  *cc, **ccp;
-
-    r->headers_out.content_type.len = sizeof("text/html") - 1;
-    r->headers_out.content_type.data = (u_char *) "text/html";
-    ccp = r->headers_out.cache_control.elts;
-    if (ccp == NULL) {
-
-        if (ngx_array_init(&r->headers_out.cache_control, r->pool,
-                           1, sizeof(ngx_table_elt_t *))
-            != NGX_OK)
-        {
-            return NGX_ERROR;
-        }
-
-        ccp = ngx_array_push(&r->headers_out.cache_control);
-        if (ccp == NULL) {
-            return NGX_ERROR;
-        }
-
-        cc = ngx_list_push(&r->headers_out.headers);
-        if (cc == NULL) {
-            return NGX_ERROR;
-        }
-
-        cc->hash = 1;
-        cc->key.len = sizeof("Cache-Control") - 1;
-        cc->key.data = (u_char *) "Cache-Control";
-
-        *ccp = cc;
-
-    } else {
-        for (i = 1; i < r->headers_out.cache_control.nelts; i++) {
-            ccp[i]->hash = 0;
-        }
-
-        cc = ccp[0];
-    }
-
-    cc->value.len = sizeof("no-cache") - 1;
-    cc->value.data = (u_char *) "no-cache";
-
-    return NGX_OK;
-}
-
-static ngx_int_t make_http_get_body(ngx_http_request_t *r, char *out_buf){
-    char *qs_start = (char *)r->args_start;
-    char *qs_end = (char *)r->uri_end;
-    char uri[256] = {0};
-    char *id;
-    size_t     root;  
-    ngx_str_t  path; 
-
-    if (qs_start == NULL || qs_end == NULL){
-        return NGX_HTTP_BAD_REQUEST;
-    }
-    if ((memcmp(qs_start, "id=", 3) == 0)){
-        id = qs_start + 3;
-        *qs_end = '\0';
-    }else{
-        return NGX_HTTP_BAD_REQUEST;
-    }
-    snprintf(uri, r->unparsed_uri.len + 1, "%s", r->unparsed_uri.data);
-    sprintf(out_buf, "Author: http://timyang.net/ id=%snuri=%snret=%lxn,port=%d, loc_conf=%p", id, uri, ngx_random(), ntohs(((struct sockaddr_in *)r->connection->local_sockaddr)->sin_port), r->loc_conf);
-
-    if (ngx_http_map_uri_to_path(r, &path, &root, 0) != NULL) {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
-                          "directory index of \"%s\", root length=%d", path.data, root);
-    } 
-
-    return NGX_OK;
-}
-
-static ngx_int_t
-ngx_http_fastdfs_handler(ngx_http_request_t *r)
+static ngx_int_t fdfs_set_location(ngx_http_request_t *r, \
+			struct fdfs_http_response *pResponse)
 {
-    ngx_int_t     rc;
-    ngx_buf_t    *b;
-    ngx_chain_t   out;
+	ngx_table_elt_t  *cc;
 
-    /* Http Output Buffer */
-    char out_buf[OUT_BUFSIZE] = {0};
+	cc = r->headers_out.location;
+	if (cc == NULL)
+	{
+		cc = ngx_list_push(&r->headers_out.headers);
+		if (cc == NULL)
+		{
+			return NGX_ERROR;
+        	}
 
-    if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_HEAD))) {
-        return NGX_HTTP_NOT_ALLOWED;
-    }
+		cc->hash = 1;
+		cc->key.len = sizeof("Location") - 1;
+		cc->key.data = (u_char *)"Location";
+	}
 
-    rc = ngx_http_discard_request_body(r);
+	cc->value.len = pResponse->redirect_url_len;
+	cc->value.data = (u_char *)pResponse->redirect_url;
 
-    if (rc != NGX_OK && rc != NGX_AGAIN) {
-        return rc;
-    }
-
-    /* make http header */
-    rc = make_http_header(r);
-    if (rc != NGX_OK) {
-        return rc;
-    }
-
-    if (r->method == NGX_HTTP_HEAD) {
-        r->headers_out.status = NGX_HTTP_OK;
-        return ngx_http_send_header(r);
-    } else if (r->method == NGX_HTTP_GET) {
-        /* make http get body buffer */
-        rc = make_http_get_body(r, out_buf);
-        if (rc != NGX_OK) {
-            return rc;
-        }
-    } else {
-        return NGX_HTTP_NOT_ALLOWED;
-    }
-
-    b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
-    if (b == NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    out.buf = b;
-    out.next = NULL;
-
-    b->pos = (u_char *)out_buf;
-    b->last = (u_char *)out_buf + strlen(out_buf);
-    b->memory = 1;
-    b->last_buf = 1;
-    r->headers_out.status = NGX_HTTP_OK;
-    r->headers_out.content_length_n = strlen(out_buf);
-
-    rc = ngx_http_send_header(r);
-
-    if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
-        return rc;
-    }
-
-    return ngx_http_output_filter(r, &out);
+	return NGX_OK;
 }
 
-static char *
-ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 {
-    ngx_http_core_loc_conf_t *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+	ngx_http_request_t *r;
+	ngx_int_t rc;
 
-    fprintf(stderr, "ngx_http_fastdfs_set pid=%d\n", getpid());
+	if (pResponse->header_outputed)
+	{
+		return;
+	}
 
-    /* register hanlder */
-    clcf->handler = ngx_http_fastdfs_handler;
+	pResponse->header_outputed = true;
 
-    return NGX_CONF_OK;
+	r = (ngx_http_request_t *)arg;
+	r->headers_out.status = pResponse->status;
+
+	if (pResponse->status != HTTP_OK)
+	{
+		if (pResponse->status == HTTP_MOVETEMP)
+		{
+			fdfs_set_location(r, pResponse);
+		}
+	}
+	else
+	{
+		/*
+		r->headers_out.content_type.len = strlen(pResponse->content_type);
+		r->headers_out.content_type.data = pResponse->content_type;
+		*/
+		r->headers_out.content_length_n = pResponse->content_length;
+	}
+
+	rc = ngx_http_send_header(r);
+	if (rc == NGX_ERROR || rc > NGX_OK)
+	{
+		return;
+	}
 }
 
-static ngx_int_t
-ngx_http_fastdfs_process_init(ngx_cycle_t *cycle)
+int fdfs_send_reply_chunk(void *arg, const char *buff, const int size)
+{
+	ngx_http_request_t *r;
+	ngx_buf_t *b;
+	ngx_chain_t out;
+
+	r = (ngx_http_request_t *)arg;
+
+	b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
+	if (b == NULL)
+	{
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	out.buf = b;
+	out.next = NULL;
+
+	b->pos = (u_char *)buff;
+	b->last = (u_char *)buff + size;
+	b->memory = 1;
+	b->last_buf = 1;
+
+	return ngx_http_output_filter(r, &out);
+}
+
+static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
+{
+	struct fdfs_http_context context;
+	ngx_int_t rc;
+	size_t     root_length;  
+	ngx_str_t  path;
+
+	if (!(r->method & (NGX_HTTP_GET | NGX_HTTP_HEAD))) {
+       		return NGX_HTTP_NOT_ALLOWED;
+	}
+
+	rc = ngx_http_discard_request_body(r);
+	if (rc != NGX_OK && rc != NGX_AGAIN)
+	{
+		return rc;
+	}
+
+	if (ngx_http_map_uri_to_path(r, &path, &root_length, 0) == NULL)
+	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"call ngx_http_map_uri_to_path fail");
+        	return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+	*(path.data + root_length) = '\0';
+
+	context.arg = r;
+	context.header_only = r->header_only;
+	context.url = r->unparsed_uri.data;
+	context.document_root = path.data;
+	context.output_headers = fdfs_output_headers;
+	context.send_reply_chunk = fdfs_send_reply_chunk;
+	context.server_port = ntohs(((struct sockaddr_in *)r->connection-> \
+					local_sockaddr)->sin_port);
+
+	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "query: %s", path.data);
+
+	fdfs_http_request_handler(&context);
+
+	return NGX_OK;		
+}
+
+static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+	int result;
+	ngx_http_core_loc_conf_t *clcf = ngx_http_conf_get_module_loc_conf(cf, \
+						ngx_http_core_module);
+
+	fprintf(stderr, "ngx_http_fastdfs_set pid=%d\n", getpid());
+
+	/* register hanlder */
+	clcf->handler = ngx_http_fastdfs_handler;
+
+	if ((result=fdfs_mod_init()) != 0)
+	{
+		return NGX_CONF_ERROR;
+	}
+
+	return NGX_CONF_OK;
+}
+
+static ngx_int_t ngx_http_fastdfs_process_init(ngx_cycle_t *cycle)
 {
     fprintf(stderr, "ngx_http_fastdfs_process_init pid=%d\n", getpid());
     // do some init here
     return NGX_OK;
 }
 
-static void
-ngx_http_fastdfs_process_exit(ngx_cycle_t *cycle)
+static void ngx_http_fastdfs_process_exit(ngx_cycle_t *cycle)
 {
     fprintf(stderr, "ngx_http_fastdfs_process_exit pid=%d\n", getpid());
     return;
