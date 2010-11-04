@@ -58,7 +58,8 @@ extern "C" {
 struct fdfs_http_response;
 
 typedef void (*FDFSOutputHeaders)(void *arg, struct fdfs_http_response *pResponse);
-typedef int (*FDFSSendReplyChunk)(void *arg, const char *buff, const int size);
+typedef int (*FDFSSendReplyChunk)(void *arg, const bool last_buff, \
+				const char *buff, const int size);
 
 struct fdfs_http_response {
 	int status;  //HTTP status
@@ -82,6 +83,7 @@ struct fdfs_http_context {
 struct fdfs_download_callback_args {
 	struct fdfs_http_context *pContext;
 	struct fdfs_http_response *pResponse;
+	int64_t sent_bytes;  //sent bytes
 };
 
 /**

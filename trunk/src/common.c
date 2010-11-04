@@ -229,8 +229,10 @@ int fdfs_download_callback(void *arg, const int64_t file_size, \
 			pCallbackArgs->pResponse, HTTP_OK)
 	}
 
+	pCallbackArgs->sent_bytes += current_size;
 	return pCallbackArgs->pContext->send_reply_chunk( \
 		pCallbackArgs->pContext->arg, \
+		(pCallbackArgs->sent_bytes == file_size) ? 1 : 0, \
 		data, current_size);
 }
 
@@ -357,7 +359,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				response.content_type = g_http_params.token_check_fail_content_type;
 				OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
 
-				pContext->send_reply_chunk(pContext->arg, \
+				pContext->send_reply_chunk(pContext->arg, 1, \
 					g_http_params.token_check_fail_buff.buff, 
 					g_http_params.token_check_fail_buff.length);
 
@@ -435,8 +437,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			file_info.create_timestamp > storage_sync_file_max_delay))
 		{
 			logDebug("file: "__FILE__", line: %d, " \
-				"file: %s not exists", \
-				__LINE__, full_filename);
+				"file: %s not exists, " \
+				"errno: %d, error info: %s", \
+				__LINE__, full_filename, \
+				errno, strerror(errno));
 
 			OUTPUT_HEADERS(pContext, (&response), HTTP_NOTFOUND)
 			return HTTP_NOTFOUND;
@@ -536,6 +540,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 		callback_args.pContext = pContext;
 		callback_args.pResponse = &response;
+		callback_args.sent_bytes = 0;
 
 		result = storage_download_file_ex1(NULL, \
                 	&storage_server, file_id, \
@@ -591,14 +596,14 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			return HTTP_SERVUNAVAIL;
 		}
 
+		remain_bytes -= read_bytes;
 		if (pContext->send_reply_chunk(pContext->arg, \
-			file_trunk_buff, read_bytes) != 0)
+			(remain_bytes == 0) ? 1: 0, file_trunk_buff, \
+			read_bytes) != 0)
 		{
 			close(fd);
 			return HTTP_SERVUNAVAIL;
 		}
-
-		remain_bytes -= read_bytes;
 	}
 
 	close(fd);

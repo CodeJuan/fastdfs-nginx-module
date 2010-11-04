@@ -21,15 +21,6 @@ static ngx_command_t  ngx_http_fastdfs_commands[] = {
       0,
       NULL },
 
-    /*
-    { ngx_string("fastdfs"),
-      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-      ngx_http_foo_set,
-      NGX_HTTP_LOC_CONF_OFFSET,
-      0,
-      NULL },  
-     */
-
       ngx_null_command
 };
 
@@ -88,7 +79,7 @@ static ngx_int_t fdfs_set_location(ngx_http_request_t *r, \
 	return NGX_OK;
 }
 
-void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
+static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 {
 	ngx_http_request_t *r;
 	ngx_int_t rc;
@@ -112,43 +103,73 @@ void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 	}
 	else
 	{
-		/*
 		r->headers_out.content_type.len = strlen(pResponse->content_type);
 		r->headers_out.content_type.data = pResponse->content_type;
-		*/
 		r->headers_out.content_length_n = pResponse->content_length;
 	}
 
 	rc = ngx_http_send_header(r);
 	if (rc == NGX_ERROR || rc > NGX_OK)
 	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"ngx_http_send_header fail, return code=%d", rc);
 		return;
 	}
 }
 
-int fdfs_send_reply_chunk(void *arg, const char *buff, const int size)
+static int fdfs_send_reply_chunk(void *arg, const bool last_buf, \
+		const char *buff, const int size)
 {
 	ngx_http_request_t *r;
 	ngx_buf_t *b;
 	ngx_chain_t out;
+	ngx_int_t rc;
+	u_char *new_buff;
 
 	r = (ngx_http_request_t *)arg;
 
 	b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
 	if (b == NULL)
 	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"ngx_pcalloc fail");
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	new_buff = ngx_pcalloc(r->pool, sizeof(u_char) * size);
+	if (new_buff == NULL)
+	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"ngx_pcalloc fail");
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
 	out.buf = b;
 	out.next = NULL;
 
-	b->pos = (u_char *)buff;
-	b->last = (u_char *)buff + size;
-	b->memory = 1;
-	b->last_buf = 1;
+	memcpy(new_buff, buff, size);
 
-	return ngx_http_output_filter(r, &out);
+	b->pos = (u_char *)new_buff;
+	b->last = (u_char *)new_buff + size;
+	b->memory = 1;
+	b->last_buf = last_buf;
+
+	/*
+	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"ngx_http_output_filter, sent: %d", r->connection->sent);
+	*/
+
+	rc = ngx_http_output_filter(r, &out);
+	if (rc == NGX_OK || rc == NGX_AGAIN)
+	{
+		return 0;
+	}
+	else
+	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"ngx_http_output_filter fail, return code: %d", rc);
+		return rc;
+	}
 }
 
 static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
@@ -185,14 +206,8 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	context.send_reply_chunk = fdfs_send_reply_chunk;
 	context.server_port = ntohs(((struct sockaddr_in *)r->connection-> \
 					local_sockaddr)->sin_port);
-
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "query(%d): %s", r->unparsed_uri.len, r->unparsed_uri.data);
-
-	fdfs_http_request_handler(&context);
-
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "header_only: %d", context.header_only);
-
-	return NGX_HTTP_OK;
+	
+	return fdfs_http_request_handler(&context);
 }
 
 static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
