@@ -16,27 +16,27 @@ Chinese language: http://www.csource.org/
 #step 3. download FastDFS nginx module source package and unpack it, such as:
 tar xzf fastdfs_nginx_module_v1.00.tar.gz
 
-#step 4. enter the source dir, compile and install the module:
-cd fastdfs_nginx_module/src
+#step 4. enter the nginx source dir, compile and install the module, such as:
+cd nginx-0.8.53
+./configure --add-module=/home/yuqing/fastdfs-nginx-module/src
 make; make install
 
 Notice: before compile, you can change FDFS_OUTPUT_CHUNK_SIZE and 
-        FDFS_MOD_CONF_FILENAME macro in the Makefile as:
-DEFS=-D_FILE_OFFSET_BITS=64 -DFDFS_OUTPUT_CHUNK_SIZE='256*1024' -DFDFS_MOD_CONF_FILENAME='"/etc/fdfs/mod_fastdfs.conf"'
+        FDFS_MOD_CONF_FILENAME macro in the config file as:
+CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64 -DFDFS_OUTPUT_CHUNK_SIZE='256*1024' -DFDFS_MOD_CONF_FILENAME='\"/etc/fdfs/mod_fastdfs.conf\"'" 
 
+#step 5. config the nginx config file such as nginx.conf, add the following lines:
 
-#step 5. config the nginx config file such as httpd.conf, add the following lines:
+        location /M00 {
+            ngx_fastdfs_module;
+        }
 
-LoadModule fastdfs_module   modules/mod_fastdfs.so
+you must change the root to ${fastdfs_base_path}/data, such as:
 
-<Location /M00>
-    sethandler  fastdfs
-</Location>
-
-you must change the DocumentRoot to ${fastdfs_base_path}/data, such as:
-
-DocumentRoot "/home/yuqing/fastdfs/data"
-
+        location / {
+            root   /home/yuqing/fastdfs/data;
+            index  index.html index.htm;
+        }
 
 #step 6. make a symbol link ${fastdfs_base_path}/data/M00 to ${fastdfs_base_path}/data,
          command line such as:
@@ -44,5 +44,6 @@ ln -s /home/yuqing/fastdfs/data  /home/yuqing/fastdfs/data/M00
 
 #step 7. change the config file /etc/fdfs/mod_fastdfs.conf, more detail please see it
 
-#step 8. restart the nginx server
+#step 8. restart the nginx server, such as:
+/usr/local/nginx/sbin/nginx -s stop; /usr/local/nginx/sbin/nginx
 
