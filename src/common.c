@@ -188,6 +188,7 @@ int fdfs_mod_init()
 		"storage_server_port=%d, " \
 		"group_name=%s, " \
 		"if_alias_prefix=%s, " \
+		"need_find_content_type=%d, " \
 		"default_content_type=%s, " \
 		"anti_steal_token=%d, " \
 		"token_ttl=%ds, " \
@@ -201,6 +202,7 @@ int fdfs_mod_init()
 		g_fdfs_network_timeout, g_tracker_group.server_count, \
 		storage_server_port, group_name, \
 		g_if_alias_prefix, \
+		g_http_params.need_find_content_type, \
 		g_http_params.default_content_type, \
 		g_http_params.anti_steal_token, \
 		g_http_params.token_ttl, \
@@ -509,15 +511,18 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		}
 	}
 
+	if (g_http_params.need_find_content_type)
+	{
 	if (fdfs_http_get_content_type_by_extname(&g_http_params, \
 		true_filename, content_type, sizeof(content_type)) != 0)
 	{
 		OUTPUT_HEADERS(pContext, (&response), HTTP_SERVUNAVAIL)
 		return HTTP_SERVUNAVAIL;
 	}
+	response.content_type = content_type;
+	}
 
 	response.content_length = file_info.file_size;
-	response.content_type = content_type;
 
 	if (pContext->header_only)
 	{
