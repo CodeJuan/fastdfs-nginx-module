@@ -175,6 +175,7 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
         	return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 	*(path.data + root_length) = '\0';
+	*(r->unparsed_uri.data + r->unparsed_uri.len) = '\0';
 
 	context.arg = r;
 	context.header_only = r->header_only;
@@ -185,11 +186,13 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	context.server_port = ntohs(((struct sockaddr_in *)r->connection-> \
 					local_sockaddr)->sin_port);
 
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "query: %s", path.data);
+	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "query(%d): %s", r->unparsed_uri.len, r->unparsed_uri.data);
 
 	fdfs_http_request_handler(&context);
 
-	return NGX_OK;		
+	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "header_only: %d", context.header_only);
+
+	return NGX_HTTP_OK;
 }
 
 static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)

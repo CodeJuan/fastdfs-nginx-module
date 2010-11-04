@@ -28,14 +28,8 @@ CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64 -DFDFS_OUTPUT_CHUNK_SIZE='256*1024' -DFDF
 #step 5. config the nginx config file such as nginx.conf, add the following lines:
 
         location /M00 {
+            root /home/yuqing/fastdfs/data;
             ngx_fastdfs_module;
-        }
-
-you must change the root to ${fastdfs_base_path}/data, such as:
-
-        location / {
-            root   /home/yuqing/fastdfs/data;
-            index  index.html index.htm;
         }
 
 #step 6. make a symbol link ${fastdfs_base_path}/data/M00 to ${fastdfs_base_path}/data,
