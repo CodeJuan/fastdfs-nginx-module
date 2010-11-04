@@ -103,7 +103,7 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 	}
 	else
 	{
-		if (g_http_params.need_find_content_type)
+		if (pResponse->content_type != NULL)
 		{
 		r->headers_out.content_type.len = strlen(pResponse->content_type);
 		r->headers_out.content_type.data = pResponse->content_type;
