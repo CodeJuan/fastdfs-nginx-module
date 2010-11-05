@@ -188,6 +188,7 @@ int fdfs_mod_init()
 		"storage_server_port=%d, " \
 		"group_name=%s, " \
 		"if_alias_prefix=%s, " \
+		"local_host_ip_count=%d, " \
 		"need_find_content_type=%d, " \
 		"default_content_type=%s, " \
 		"anti_steal_token=%d, " \
@@ -201,7 +202,7 @@ int fdfs_mod_init()
 		g_fdfs_base_path, g_fdfs_connect_timeout, \
 		g_fdfs_network_timeout, g_tracker_group.server_count, \
 		storage_server_port, group_name, \
-		g_if_alias_prefix, \
+		g_if_alias_prefix, g_local_host_ip_count, \
 		g_http_params.need_find_content_type, \
 		g_http_params.default_content_type, \
 		g_http_params.anti_steal_token, \
@@ -210,6 +211,8 @@ int fdfs_mod_init()
 		g_http_params.token_check_fail_content_type, \
 		g_http_params.token_check_fail_buff.length, \
 		storage_sync_file_max_delay);
+
+	//print_local_host_ip_addrs();
 
 	return 0;
 }
@@ -261,6 +264,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	int filename_len;
 	int full_filename_len;
 	int fd;
+	int result;
+	int http_status;
 	struct fdfs_http_response response;
 	FDFSFileInfo file_info;
 	bool bFileExists;
@@ -408,10 +413,19 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return HTTP_BADREQUEST;
 	}
 
-	if (fdfs_get_file_info(file_id, &file_info) != 0)
+	if ((result=fdfs_get_file_info(file_id, &file_info)) != 0)
 	{
-		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
-		return HTTP_BADREQUEST;
+		if (result == ENOENT)
+		{
+			http_status = HTTP_NOTFOUND;
+		}
+		else
+		{
+			http_status = HTTP_INTERNAL_SERVER_ERROR;
+		}
+
+		OUTPUT_HEADERS(pContext, (&response), http_status)
+		return http_status;
 	}
 
 	full_filename_len = snprintf(full_filename, sizeof(full_filename), \
@@ -537,8 +551,6 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		TrackerServerInfo storage_server;
 		struct fdfs_download_callback_args callback_args;
 		int64_t file_size;
-		int result;
-		int http_status;
 
 		strcpy(storage_server.ip_addr, file_info.source_ip_addr);
 		storage_server.port = storage_server_port;
