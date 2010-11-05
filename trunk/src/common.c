@@ -259,6 +259,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	off_t remain_bytes;
 	int read_bytes;
 	int filename_len;
+	int full_filename_len;
 	int fd;
 	struct fdfs_http_response response;
 	FDFSFileInfo file_info;
@@ -413,8 +414,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return HTTP_BADREQUEST;
 	}
 
-	snprintf(full_filename, sizeof(full_filename), "%s/%s", \
-			pContext->document_root, filename);
+	full_filename_len = snprintf(full_filename, sizeof(full_filename), \
+			"%s/%s", pContext->document_root, filename);
 	if (stat(full_filename, &file_stat) != 0)
 	{
 		bFileExists = false;
@@ -573,6 +574,13 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return http_status;
 	}
 
+	if (pContext->send_file != NULL)
+	{
+		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
+		return pContext->send_file(pContext->arg, full_filename, \
+				full_filename_len);
+	}
+
 	fd = open(full_filename, O_RDONLY);
 	if (fd < 0)
 	{
@@ -612,7 +620,6 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	}
 
 	close(fd);
-
 	return HTTP_OK;
 }
 

@@ -156,6 +156,7 @@ static int fdfs_send_reply_chunk(void *arg, const bool last_buf, \
 	b->pos = (u_char *)new_buff;
 	b->last = (u_char *)new_buff + size;
 	b->memory = 1;
+	b->last_in_chain = last_buf;
 	b->last_buf = last_buf;
 
 	/*
@@ -173,6 +174,116 @@ static int fdfs_send_reply_chunk(void *arg, const bool last_buf, \
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
 			"ngx_http_output_filter fail, return code: %d", rc);
 		return rc;
+	}
+}
+
+static int fdfs_send_file(void *arg, const char *filename, \
+		const int filename_len)
+{
+	ngx_http_request_t *r;
+	ngx_http_core_loc_conf_t *ccf;
+	ngx_buf_t *b;
+	ngx_str_t ngx_filename;
+	ngx_open_file_info_t of;
+	ngx_chain_t out;
+	ngx_uint_t level;
+	ngx_int_t rc;
+
+	r = (ngx_http_request_t *)arg;
+
+	ccf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+	ngx_filename.data = (u_char *)filename;
+	ngx_filename.len = filename_len;
+
+	ngx_memzero(&of, sizeof(ngx_open_file_info_t));
+
+#if defined(nginx_version) && (nginx_version >= 8018)
+	of.read_ahead = ccf->read_ahead;
+#endif
+	of.directio = ccf->directio;
+	of.valid = ccf->open_file_cache_valid;
+	of.min_uses = ccf->open_file_cache_min_uses;
+	of.errors = ccf->open_file_cache_errors;
+	of.events = ccf->open_file_cache_events;
+	if (ngx_open_cached_file(ccf->open_file_cache, &ngx_filename, \
+			&of, r->pool) != NGX_OK)
+	{
+		switch (of.err)
+		{
+			case 0:
+				return NGX_HTTP_INTERNAL_SERVER_ERROR;
+			case NGX_ENOENT:
+			case NGX_ENOTDIR:
+			case NGX_ENAMETOOLONG:
+				level = NGX_LOG_ERR;
+				rc = NGX_HTTP_NOT_FOUND;
+				break;
+			case NGX_EACCES:
+				level = NGX_LOG_ERR;
+				rc = NGX_HTTP_FORBIDDEN;
+				break;
+			default:
+				level = NGX_LOG_CRIT;
+				rc = NGX_HTTP_INTERNAL_SERVER_ERROR;
+				break;
+		}
+
+		if (rc != NGX_HTTP_NOT_FOUND || ccf->log_not_found)
+		{
+			ngx_log_error(level, r->connection->log, of.err, \
+				"%s \"%s\" failed", of.failed, filename);
+		}
+
+		return rc;
+	}
+
+	if (!of.is_file)
+	{
+		ngx_log_error(NGX_LOG_CRIT, r->connection->log, ngx_errno, \
+			"\"%s\" is not a regular file", filename);
+		return NGX_HTTP_NOT_FOUND;
+	}
+
+	b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
+	if (b == NULL)
+	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"ngx_pcalloc fail");
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	b->file = ngx_pcalloc(r->pool, sizeof(ngx_file_t));
+	if (b->file == NULL)
+	{
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	out.buf = b;
+	out.next = NULL;
+
+        b->file_pos = 0;
+	b->file_last = of.size;
+	b->in_file = b->file_last > 0 ? 1 : 0;
+	b->file->fd = of.fd;
+	b->file->name.data = (u_char *)filename;
+	b->file->name.len = filename_len;
+	b->file->log = r->connection->log;
+	b->file->directio = of.is_directio;
+
+	b->last_in_chain = 1;
+	b->last_buf = 1;
+
+	rc = ngx_http_output_filter(r, &out);
+	if (rc == NGX_OK || rc == NGX_AGAIN)
+	{
+		return NGX_HTTP_OK;
+	}
+	else
+	{
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+			"ngx_http_output_filter fail, return code: %d", rc);
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 }
 
@@ -207,6 +318,7 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	context.url = r->unparsed_uri.data;
 	context.document_root = path.data;
 	context.output_headers = fdfs_output_headers;
+	context.send_file = fdfs_send_file;
 	context.send_reply_chunk = fdfs_send_reply_chunk;
 	context.server_port = ntohs(((struct sockaddr_in *)r->connection-> \
 					local_sockaddr)->sin_port);

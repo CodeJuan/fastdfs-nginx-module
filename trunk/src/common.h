@@ -60,6 +60,8 @@ struct fdfs_http_response;
 typedef void (*FDFSOutputHeaders)(void *arg, struct fdfs_http_response *pResponse);
 typedef int (*FDFSSendReplyChunk)(void *arg, const bool last_buff, \
 				const char *buff, const int size);
+typedef int (*FDFSSendFile)(void *arg, const char *filename, \
+		const int filename_len);
 
 struct fdfs_http_response {
 	int status;  //HTTP status
@@ -77,6 +79,7 @@ struct fdfs_http_context {
 	char *url;
 	void *arg; //for callback
 	FDFSOutputHeaders output_headers;
+	FDFSSendFile send_file;
 	FDFSSendReplyChunk send_reply_chunk;
 };
 
