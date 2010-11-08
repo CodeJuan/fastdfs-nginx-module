@@ -140,11 +140,11 @@ static int fdfs_send_reply_chunk(void *arg, const bool last_buf, \
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
-	new_buff = ngx_pcalloc(r->pool, sizeof(u_char) * size);
+	new_buff = ngx_palloc(r->pool, sizeof(u_char) * size);
 	if (new_buff == NULL)
 	{
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
-			"ngx_pcalloc fail");
+			"ngx_palloc fail");
 		return NGX_HTTP_INTERNAL_SERVER_ERROR;
 	}
 
