@@ -5,12 +5,44 @@
 #include <unistd.h>
 #include "common.c"
 
-#define OUT_BUFSIZE 256
+typedef struct {
+	ngx_http_upstream_conf_t   upstream;
+	ngx_uint_t                 headers_hash_max_size;
+	ngx_uint_t                 headers_hash_bucket_size;
+} ngx_http_fastdfs_loc_conf_t;
 
 static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 static ngx_int_t ngx_http_fastdfs_process_init(ngx_cycle_t *cycle);
 static void ngx_http_fastdfs_process_exit(ngx_cycle_t *cycle);
+
+static ngx_int_t ngx_http_fastdfs_proxy_handler(void *arg, const char *dest_ip_addr);
+
+static ngx_int_t ngx_http_fastdfs_proxy_process_status_line(ngx_http_request_t *r);
+static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r);
+
+static void *ngx_http_fastdfs_create_loc_conf(ngx_conf_t *cf);
+static char *ngx_http_fastdfs_merge_loc_conf(ngx_conf_t *cf,
+    void *parent, void *child);
+
+typedef struct {
+	ngx_http_status_t status;
+	char dest_ip_addr[IP_ADDRESS_SIZE];
+} ngx_http_fastdfs_proxy_ctx_t;
+
+static char  ngx_http_fastdfs_proxy_version[] = " HTTP/1.0"CRLF;
+
+static ngx_str_t  ngx_http_proxy_hide_headers[] = {
+	ngx_string("Date"),
+	ngx_string("Server"),
+	ngx_string("X-Pad"),
+	ngx_string("X-Accel-Expires"),
+	ngx_string("X-Accel-Redirect"),
+	ngx_string("X-Accel-Limit-Rate"),
+	ngx_string("X-Accel-Buffering"),
+	ngx_string("X-Accel-Charset"),
+	ngx_null_string
+};
 
 /* Commands */
 static ngx_command_t  ngx_http_fastdfs_commands[] = {
@@ -34,8 +66,8 @@ static ngx_http_module_t  ngx_http_fastdfs_module_ctx = {
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
 
-    NULL,                                  /* create location configuration */
-    NULL                                   /* merge location configuration */
+    ngx_http_fastdfs_create_loc_conf,    /* create location configration */
+    ngx_http_fastdfs_merge_loc_conf      /* merge location configration */
 };
 
 /* hook */
@@ -287,6 +319,390 @@ static int fdfs_send_file(void *arg, const char *filename, \
 	}
 }
 
+static ngx_int_t ngx_http_fastdfs_proxy_create_request(ngx_http_request_t *r)
+{
+#define FDFS_REDIRECT_PARAM  "redirect=1"
+
+ 	size_t                        len;
+	ngx_buf_t                    *b;
+	ngx_uint_t                    i;
+	ngx_chain_t                  *cl;
+	ngx_list_part_t              *part;
+	ngx_table_elt_t              *header;
+	ngx_http_upstream_t          *u;
+
+	u = r->upstream;
+
+	len = r->method_name.len + 1 + r->unparsed_uri.len + 1 + 
+		sizeof(FDFS_REDIRECT_PARAM) - 1 + 1 + 
+		sizeof(ngx_http_fastdfs_proxy_version) - 1 + sizeof(CRLF) - 1;
+
+	part = &r->headers_in.headers.part;
+	header = part->elts;
+
+	for (i = 0; /* void */; i++)
+	{
+		if (i >= part->nelts)
+		{
+			if (part->next == NULL)
+			{
+				break;
+			}
+
+			part = part->next;
+			header = part->elts;
+			i = 0;
+		}
+
+		len += header[i].key.len + 2 + header[i].value.len + 
+			sizeof(CRLF) - 1;
+        }
+
+	b = ngx_create_temp_buf(r->pool, len);
+	if (b == NULL)
+	{
+		return NGX_ERROR;
+	}
+
+	cl = ngx_alloc_chain_link(r->pool);
+	if (cl == NULL)
+	{
+		return NGX_ERROR;
+	}
+
+	cl->buf = b;
+
+	/* the request line */
+	b->last = ngx_copy(b->last, r->method_name.data, r->method_name.len);
+	*b->last++ = ' ';
+
+	u->uri.data = b->last;
+	b->last = ngx_cpymem(b->last, r->unparsed_uri.data, r->unparsed_uri.len);
+
+	if (strchr(r->unparsed_uri.data, '?') != NULL)
+	{
+		*b->last++ = '&';
+	}
+	else
+	{
+		*b->last++ = '?';
+	}
+	b->last = ngx_cpymem(b->last, FDFS_REDIRECT_PARAM,
+			sizeof(FDFS_REDIRECT_PARAM) - 1);
+
+	u->uri.len =  b->last - u->uri.data;
+
+	*b->last++ = ' ';
+	b->last = ngx_cpymem(b->last, ngx_http_fastdfs_proxy_version,
+			sizeof(ngx_http_fastdfs_proxy_version) - 1);
+
+	part = &r->headers_in.headers.part;
+	header = part->elts;
+	for (i = 0; /* void */; i++)
+	{
+		if (i >= part->nelts)
+		{
+			if (part->next == NULL)
+			{
+				break;
+			}
+
+			part = part->next;
+			header = part->elts;
+			i = 0;
+		}
+
+		b->last = ngx_copy(b->last, header[i].key.data, 
+				header[i].key.len);
+		*b->last++ = ':'; *b->last++ = ' ';
+		b->last = ngx_copy(b->last, header[i].value.data,
+                               header[i].value.len);
+		*b->last++ = CR; *b->last++ = LF;
+	}
+
+	/* add "\r\n" at the header end */
+	*b->last++ = CR; *b->last++ = LF;
+
+	/*
+	fprintf(stderr, "http proxy header(%d, %d):\n\"%*s\"\n", 
+		len, b->last - b->pos, (b->last - b->pos), b->pos);
+	*/
+
+	u->request_bufs = cl;
+	cl->next = NULL;
+
+	return NGX_OK;
+}
+
+static ngx_int_t ngx_http_fastdfs_proxy_reinit_request(ngx_http_request_t *r)
+{
+    ngx_http_fastdfs_proxy_ctx_t  *ctx;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_fastdfs_module);
+
+    if (ctx == NULL) {
+        return NGX_OK;
+    }
+
+    ctx->status.code = 0;
+    ctx->status.count = 0;
+    ctx->status.start = NULL;
+    ctx->status.end = NULL;
+
+    r->upstream->process_header = ngx_http_fastdfs_proxy_process_status_line;
+    r->state = 0;
+
+    return NGX_OK;
+}
+
+static void ngx_http_fastdfs_proxy_abort_request(ngx_http_request_t *r)
+{
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "abort http proxy request");
+
+    return;
+}
+
+
+static void ngx_http_fastdfs_proxy_finalize_request(ngx_http_request_t *r, ngx_int_t rc)
+{
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "finalize http proxy request");
+
+    return;
+}
+
+static ngx_int_t ngx_http_fastdfs_proxy_process_status_line(ngx_http_request_t *r)
+{
+    size_t                 len;
+    ngx_int_t              rc;
+    ngx_http_upstream_t   *u;
+    ngx_http_fastdfs_proxy_ctx_t  *ctx;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_fastdfs_module);
+
+    if (ctx == NULL) {
+        return NGX_ERROR;
+    }
+
+    u = r->upstream;
+
+    rc = ngx_http_parse_status_line(r, &u->buffer, &ctx->status);
+
+    if (rc == NGX_AGAIN) {
+        return rc;
+    }
+
+    if (rc == NGX_ERROR) {
+
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "upstream sent no valid HTTP/1.0 header");
+
+#if 0
+        if (u->accel) {
+            return NGX_HTTP_UPSTREAM_INVALID_HEADER;
+        }
+#endif
+
+        r->http_version = NGX_HTTP_VERSION_9;
+        u->state->status = NGX_HTTP_OK;
+
+        return NGX_OK;
+    }
+
+    if (u->state) {
+        u->state->status = ctx->status.code;
+    }
+
+    u->headers_in.status_n = ctx->status.code;
+
+    len = ctx->status.end - ctx->status.start;
+    u->headers_in.status_line.len = len;
+
+    u->headers_in.status_line.data = ngx_pnalloc(r->pool, len);
+    if (u->headers_in.status_line.data == NULL) {
+        return NGX_ERROR;
+    }
+
+    ngx_memcpy(u->headers_in.status_line.data, ctx->status.start, len);
+
+    u->process_header = ngx_http_fastdfs_proxy_process_header;
+
+    return ngx_http_fastdfs_proxy_process_header(r);
+}
+
+static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r)
+{
+    ngx_int_t        rc;
+    ngx_table_elt_t  *h;
+
+    for ( ;; ) {
+
+        rc = ngx_http_parse_header_line(r, &r->upstream->buffer, 1);
+
+        if (rc == NGX_OK) {
+
+            /* a header line has been parsed successfully */
+
+            h = ngx_list_push(&r->upstream->headers_in.headers);
+            if (h == NULL) {
+                return NGX_ERROR;
+            }
+
+            h->hash = r->header_hash;
+
+            h->key.len = r->header_name_end - r->header_name_start;
+            h->value.len = r->header_end - r->header_start;
+
+            h->key.data = ngx_pnalloc(r->pool,
+                               h->key.len + 1 + h->value.len + 1 + h->key.len);
+            if (h->key.data == NULL) {
+                return NGX_ERROR;
+            }
+
+            h->value.data = h->key.data + h->key.len + 1;
+            h->lowcase_key = h->key.data + h->key.len + 1 + h->value.len + 1;
+
+            ngx_cpystrn(h->key.data, r->header_name_start, h->key.len + 1);
+            ngx_cpystrn(h->value.data, r->header_start, h->value.len + 1);
+
+            if (h->key.len == r->lowcase_index) {
+                ngx_memcpy(h->lowcase_key, r->lowcase_header, h->key.len);
+
+            } else {
+                ngx_strlow(h->lowcase_key, h->key.data, h->key.len);
+            }
+
+            continue;
+        }
+
+        if (rc == NGX_HTTP_PARSE_HEADER_DONE) {
+
+            /* a whole header has been parsed successfully */
+
+            /*
+             * if no "Server" and "Date" in header line,
+             * then add the special empty headers
+             */
+
+            if (r->upstream->headers_in.server == NULL) {
+                h = ngx_list_push(&r->upstream->headers_in.headers);
+                if (h == NULL) {
+                    return NGX_ERROR;
+                }
+
+                h->hash = ngx_hash(ngx_hash(ngx_hash(ngx_hash(
+                                    ngx_hash('s', 'e'), 'r'), 'v'), 'e'), 'r');
+
+                ngx_str_set(&h->key, "Server");
+                ngx_str_null(&h->value);
+                h->lowcase_key = (u_char *) "server";
+            }
+
+            if (r->upstream->headers_in.date == NULL) {
+                h = ngx_list_push(&r->upstream->headers_in.headers);
+                if (h == NULL) {
+                    return NGX_ERROR;
+                }
+
+                h->hash = ngx_hash(ngx_hash(ngx_hash('d', 'a'), 't'), 'e');
+
+                ngx_str_set(&h->key, "Date");
+                ngx_str_null(&h->value);
+                h->lowcase_key = (u_char *) "date";
+            }
+
+            return NGX_OK;
+        }
+
+        if (rc == NGX_AGAIN) {
+            return NGX_AGAIN;
+        }
+
+        /* there was error while a header line parsing */
+
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "upstream sent invalid header");
+
+        return NGX_HTTP_UPSTREAM_INVALID_HEADER;
+    }
+}
+
+static ngx_int_t ngx_http_fastdfs_proxy_handler(void *arg, \
+			const char *dest_ip_addr)
+{
+	ngx_http_request_t *r;
+	ngx_int_t rc;
+	ngx_http_upstream_t *u;
+	ngx_http_fastdfs_proxy_ctx_t *ctx;
+	ngx_http_fastdfs_loc_conf_t *plcf;
+
+	r = (ngx_http_request_t *)arg;
+
+	if (ngx_http_upstream_create(r) != NGX_OK) {
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_fastdfs_proxy_ctx_t));
+	if (ctx == NULL) {
+		return NGX_ERROR;
+	}
+
+	ngx_http_set_ctx(r, ctx, ngx_http_fastdfs_module);
+
+	plcf = ngx_http_get_module_loc_conf(r, ngx_http_fastdfs_module);
+
+	u = r->upstream;
+
+#if (NGX_HTTP_SSL)
+	u->ssl = (plcf->upstream.ssl != NULL);
+#endif
+
+	u->conf = &plcf->upstream;
+
+	u->resolved = ngx_pcalloc(r->pool, sizeof(ngx_http_upstream_resolved_t));
+	if (u->resolved == NULL)
+	{
+		return NGX_ERROR;
+	}
+
+	ngx_str_set(&u->schema, "http://");
+	strcpy(ctx->dest_ip_addr, dest_ip_addr);
+	u->resolved->host.data = (u_char *)ctx->dest_ip_addr;
+	u->resolved->host.len = strlen(ctx->dest_ip_addr);
+	u->resolved->port = (in_port_t)ntohs(((struct sockaddr_in *)r-> \
+				connection->local_sockaddr)->sin_port);
+
+	u->output.tag = (ngx_buf_tag_t) &ngx_http_fastdfs_module;
+
+	u->create_request = ngx_http_fastdfs_proxy_create_request;
+	u->reinit_request = ngx_http_fastdfs_proxy_reinit_request;
+	u->process_header = ngx_http_fastdfs_proxy_process_status_line;
+	u->abort_request = ngx_http_fastdfs_proxy_abort_request;
+	u->finalize_request = ngx_http_fastdfs_proxy_finalize_request;
+	r->state = 0;
+
+	/*
+	u->pipe = ngx_pcalloc(r->pool, sizeof(ngx_event_pipe_t));
+	if (u->pipe == NULL)
+	{
+		return NGX_HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	u->pipe->input_filter = ngx_event_pipe_copy_input_filter;
+	u->accel = 1;
+	*/
+
+	rc = ngx_http_read_client_request_body(r, ngx_http_upstream_init);
+
+	if (rc >= NGX_HTTP_SPECIAL_RESPONSE)
+	{
+		return rc;
+	}
+
+	return NGX_DONE;
+}
+
 static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 {
 	struct fdfs_http_context context;
@@ -320,6 +736,7 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	context.output_headers = fdfs_output_headers;
 	context.send_file = fdfs_send_file;
 	context.send_reply_chunk = fdfs_send_reply_chunk;
+	context.proxy_handler = ngx_http_fastdfs_proxy_handler;
 	context.server_port = ntohs(((struct sockaddr_in *)r->connection-> \
 					local_sockaddr)->sin_port);
 	
@@ -356,5 +773,99 @@ static void ngx_http_fastdfs_process_exit(ngx_cycle_t *cycle)
 {
     fprintf(stderr, "ngx_http_fastdfs_process_exit pid=%d\n", getpid());
     return;
+}
+
+static void *ngx_http_fastdfs_create_loc_conf(ngx_conf_t *cf)
+{
+    ngx_http_fastdfs_loc_conf_t  *conf;
+
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_fastdfs_loc_conf_t));
+    if (conf == NULL) {
+        return NULL;
+    }
+
+    conf->upstream.connect_timeout = NGX_CONF_UNSET_MSEC;
+    conf->upstream.send_timeout = NGX_CONF_UNSET_MSEC;
+    conf->upstream.read_timeout = NGX_CONF_UNSET_MSEC;
+
+    conf->upstream.buffer_size = NGX_CONF_UNSET_SIZE;
+
+    conf->upstream.hide_headers = NGX_CONF_UNSET_PTR;
+    conf->upstream.pass_headers = NGX_CONF_UNSET_PTR;
+
+    /* the hardcoded values */
+    conf->upstream.cyclic_temp_file = 0;
+    conf->upstream.buffering = 0;
+    conf->upstream.ignore_client_abort = 0;
+    conf->upstream.send_lowat = 0;
+    conf->upstream.bufs.num = 0;
+    conf->upstream.busy_buffers_size = 0;
+    conf->upstream.max_temp_file_size = 0;
+    conf->upstream.temp_file_write_size = 0;
+    conf->upstream.intercept_errors = 1;
+    conf->upstream.intercept_404 = 1;
+    conf->upstream.pass_request_headers = 0;
+    conf->upstream.pass_request_body = 0;
+
+    conf->headers_hash_max_size = NGX_CONF_UNSET_UINT;
+    conf->headers_hash_bucket_size = NGX_CONF_UNSET_UINT;
+
+    return conf;
+}
+
+static char * ngx_http_fastdfs_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+{
+    ngx_hash_init_t             hash;
+    ngx_http_fastdfs_loc_conf_t *prev = parent;
+    ngx_http_fastdfs_loc_conf_t *conf = child;
+
+    ngx_conf_merge_msec_value(conf->upstream.connect_timeout,
+                              prev->upstream.connect_timeout, 60000);
+
+    ngx_conf_merge_msec_value(conf->upstream.send_timeout,
+                              prev->upstream.send_timeout, 60000);
+
+    ngx_conf_merge_msec_value(conf->upstream.read_timeout,
+                              prev->upstream.read_timeout, 60000);
+
+    ngx_conf_merge_size_value(conf->upstream.buffer_size,
+                              prev->upstream.buffer_size,
+                              (size_t) ngx_pagesize);
+
+    ngx_conf_merge_bitmask_value(conf->upstream.next_upstream,
+                              prev->upstream.next_upstream,
+                              (NGX_CONF_BITMASK_SET
+                               |NGX_HTTP_UPSTREAM_FT_ERROR
+                               |NGX_HTTP_UPSTREAM_FT_TIMEOUT));
+
+    if (conf->upstream.next_upstream & NGX_HTTP_UPSTREAM_FT_OFF) {
+        conf->upstream.next_upstream = NGX_CONF_BITMASK_SET
+                                       |NGX_HTTP_UPSTREAM_FT_OFF;
+    }
+
+    if (conf->upstream.upstream == NULL) {
+        conf->upstream.upstream = prev->upstream.upstream;
+    }
+
+    ngx_conf_merge_uint_value(conf->headers_hash_max_size,
+                              prev->headers_hash_max_size, 512);
+
+    ngx_conf_merge_uint_value(conf->headers_hash_bucket_size,
+                              prev->headers_hash_bucket_size, 64);
+    conf->headers_hash_bucket_size = ngx_align(conf->headers_hash_bucket_size,
+                                               ngx_cacheline_size);
+
+    hash.max_size = conf->headers_hash_max_size;
+    hash.bucket_size = conf->headers_hash_bucket_size;
+    hash.name = "proxy_headers_hash";
+
+    if (ngx_http_upstream_hide_headers_hash(cf, &conf->upstream,
+            &prev->upstream, ngx_http_proxy_hide_headers, &hash)
+        != NGX_OK)
+    {
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
 }
 
