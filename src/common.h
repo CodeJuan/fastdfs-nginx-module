@@ -62,6 +62,7 @@ typedef int (*FDFSSendReplyChunk)(void *arg, const bool last_buff, \
 				const char *buff, const int size);
 typedef int (*FDFSSendFile)(void *arg, const char *filename, \
 		const int filename_len);
+typedef int (*FDFSProxyHandler)(void *arg, const char *dest_ip_addr);
 
 struct fdfs_http_response {
 	int status;  //HTTP status
@@ -79,8 +80,9 @@ struct fdfs_http_context {
 	char *url;
 	void *arg; //for callback
 	FDFSOutputHeaders output_headers;
-	FDFSSendFile send_file;
+	FDFSSendFile send_file;   //nginx send file
 	FDFSSendReplyChunk send_reply_chunk;
+	FDFSProxyHandler proxy_handler; //nginx proxy handler 
 };
 
 struct fdfs_download_callback_args {

@@ -450,6 +450,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	if (!bFileExists)
 	{
+		char *redirect;
+
 		if (is_local_host_ip(file_info.source_ip_addr) || (time(NULL) - \
 			file_info.create_timestamp > storage_sync_file_max_delay))
 		{
@@ -463,25 +465,24 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			return HTTP_NOTFOUND;
 		}
 
-		if (response_mode == FDFS_MOD_REPONSE_MODE_REDIRECT)
+		redirect = fdfs_http_get_parameter("redirect", \
+						params, param_count);
+		if (redirect != NULL)
 		{
-			char *redirect;
-			char *path_split_str;
-			char port_part[16];
-			char param_split_char;
-			
-			redirect = fdfs_http_get_parameter("redirect", \
-							params, param_count);
-			if (redirect != NULL)
-			{
 			logWarning("file: "__FILE__", line: %d, " \
 				"redirect again, url: %s", \
 				__LINE__, url);
 
 			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 			return HTTP_BADREQUEST;
-			}
+		}
 
+		if (response_mode == FDFS_MOD_REPONSE_MODE_REDIRECT)
+		{
+			char *path_split_str;
+			char port_part[16];
+			char param_split_char;
+			
 			if (pContext->server_port == 80)
 			{
 				*port_part = '\0';
@@ -523,6 +524,11 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 			OUTPUT_HEADERS(pContext, (&response), HTTP_MOVETEMP)
 			return HTTP_MOVETEMP;
+		}
+		else if (pContext->proxy_handler != NULL)
+		{
+			return pContext->proxy_handler(pContext->arg, \
+					file_info.source_ip_addr);
 		}
 	}
 
@@ -656,4 +662,3 @@ static int fdfs_get_params_from_tracker()
 
         return 0;
 }
-
