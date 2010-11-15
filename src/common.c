@@ -230,6 +230,7 @@ int fdfs_download_callback(void *arg, const int64_t file_size, \
 
 	if (!pCallbackArgs->pResponse->header_outputed)
 	{
+		pCallbackArgs->pResponse->content_length = file_size;
 		OUTPUT_HEADERS(pCallbackArgs->pContext, \
 			pCallbackArgs->pResponse, HTTP_OK)
 	}
@@ -413,7 +414,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return HTTP_BADREQUEST;
 	}
 
-	if ((result=fdfs_get_file_info(file_id, &file_info)) != 0)
+	if ((result=fdfs_get_file_info_ex(file_id, false, &file_info)) != 0)
 	{
 		if (result == ENOENT)
 		{
@@ -430,18 +431,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	full_filename_len = snprintf(full_filename, sizeof(full_filename), \
 			"%s/%s", pContext->document_root, filename);
+	memset(&file_stat, 0, sizeof(file_stat));
 	if (stat(full_filename, &file_stat) != 0)
 	{
 		bFileExists = false;
-	}
-	else if (file_stat.st_size != file_info.file_size)
-	{
-		bFileExists = false;
-		logWarning("file: "__FILE__", line: %d, " \
-			"file: %s, my size: "OFF_PRINTF_FORMAT \
-			"!= the correct file size: "OFF_PRINTF_FORMAT, \
-			__LINE__, full_filename, file_stat.st_size, \
-			file_info.file_size);
 	}
 	else
 	{
@@ -452,8 +445,9 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		char *redirect;
 
-		if (is_local_host_ip(file_info.source_ip_addr) || (time(NULL) - \
-			file_info.create_timestamp > storage_sync_file_max_delay))
+		if (is_local_host_ip(file_info.source_ip_addr) || \
+		(file_info.create_timestamp > 0 && (time(NULL) - \
+		file_info.create_timestamp > storage_sync_file_max_delay)))
 		{
 			logDebug("file: "__FILE__", line: %d, " \
 				"file: %s not exists, " \
@@ -543,10 +537,9 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	response.content_type = content_type;
 	}
 
-	response.content_length = file_info.file_size;
-
 	if (pContext->header_only)
 	{
+		response.content_length = file_info.file_size;
 		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
 
 		return HTTP_OK;
@@ -592,6 +585,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return http_status;
 	}
 
+	response.content_length = file_stat.st_size;
 	if (pContext->send_file != NULL)
 	{
 		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
