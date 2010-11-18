@@ -14,7 +14,7 @@ Chinese language: http://www.csource.org/
          my nginx installed in /usr/local/nginx
 
 #step 3. download FastDFS nginx module source package and unpack it, such as:
-tar xzf fastdfs_nginx_module_v1.00.tar.gz
+tar xzf fastdfs_nginx_module_v1.01.tar.gz
 
 #step 4. enter the nginx source dir, compile and install the module, such as:
 cd nginx-0.8.53
