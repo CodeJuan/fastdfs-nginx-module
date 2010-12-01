@@ -1,4 +1,7 @@
 
+Version 1.02  2010-12-01
+ * fix signedness and signed assignment
+
 Version 1.01  2010-11-15
  *  use nginx proxy deal approach
 

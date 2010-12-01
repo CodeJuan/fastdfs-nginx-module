@@ -138,7 +138,7 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		if (pResponse->content_type != NULL)
 		{
 		r->headers_out.content_type.len = strlen(pResponse->content_type);
-		r->headers_out.content_type.data = pResponse->content_type;
+		r->headers_out.content_type.data = (u_char *)pResponse->content_type;
 		}
 
 		r->headers_out.content_length_n = pResponse->content_length;
@@ -379,7 +379,7 @@ static ngx_int_t ngx_http_fastdfs_proxy_create_request(ngx_http_request_t *r)
 	u->uri.data = b->last;
 	b->last = ngx_cpymem(b->last, r->unparsed_uri.data, r->unparsed_uri.len);
 
-	if (strchr(r->unparsed_uri.data, '?') != NULL)
+	if (strchr((char *)r->unparsed_uri.data, '?') != NULL)
 	{
 		*b->last++ = '&';
 	}
@@ -731,8 +731,8 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 
 	context.arg = r;
 	context.header_only = r->header_only;
-	context.url = r->unparsed_uri.data;
-	context.document_root = path.data;
+	context.url = (char *)r->unparsed_uri.data;
+	context.document_root = (char *)path.data;
 	context.output_headers = fdfs_output_headers;
 	context.send_file = fdfs_send_file;
 	context.send_reply_chunk = fdfs_send_reply_chunk;
