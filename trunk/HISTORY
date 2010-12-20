@@ -1,6 +1,7 @@
 
-Version 1.02  2010-12-01
+Version 1.02  2010-12-20
  * fix signedness and signed assignment
+ * change ngx_http_fastdfs_proxy_handler return type from ngx_int_t to int
 
 Version 1.01  2010-11-15
  *  use nginx proxy deal approach
