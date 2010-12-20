@@ -16,7 +16,7 @@ static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 static ngx_int_t ngx_http_fastdfs_process_init(ngx_cycle_t *cycle);
 static void ngx_http_fastdfs_process_exit(ngx_cycle_t *cycle);
 
-static ngx_int_t ngx_http_fastdfs_proxy_handler(void *arg, const char *dest_ip_addr);
+static int ngx_http_fastdfs_proxy_handler(void *arg, const char *dest_ip_addr);
 
 static ngx_int_t ngx_http_fastdfs_proxy_process_status_line(ngx_http_request_t *r);
 static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r);
@@ -628,7 +628,7 @@ static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r)
     }
 }
 
-static ngx_int_t ngx_http_fastdfs_proxy_handler(void *arg, \
+static int ngx_http_fastdfs_proxy_handler(void *arg, \
 			const char *dest_ip_addr)
 {
 	ngx_http_request_t *r;
