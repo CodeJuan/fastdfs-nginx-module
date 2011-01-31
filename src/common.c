@@ -414,7 +414,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return HTTP_BADREQUEST;
 	}
 
-	if ((result=fdfs_get_file_info_ex(file_id, false, &file_info)) != 0)
+	if ((result=fdfs_get_file_info_ex1(file_id, false, &file_info)) != 0)
 	{
 		if (result == ENOENT)
 		{

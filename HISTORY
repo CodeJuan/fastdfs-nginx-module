@@ -1,3 +1,5 @@
+Version 1.03  2011-01-31
+ * use FastDFS V2.08 client library
 
 Version 1.02  2010-12-20
  * fix signedness and signed assignment
