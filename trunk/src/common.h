@@ -69,7 +69,9 @@ struct fdfs_http_response {
 	int redirect_url_len;
 	int64_t content_length;
 	char *content_type;
+	char *attachment_filename;
 	char redirect_url[256];
+	char content_disposition[128];
 	bool header_outputed;   //if header output
 };
 

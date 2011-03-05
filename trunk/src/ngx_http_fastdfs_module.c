@@ -86,6 +86,30 @@ ngx_module_t  ngx_http_fastdfs_module = {
     NGX_MODULE_V1_PADDING
 };
 
+static ngx_int_t fdfs_set_content_disposition(ngx_http_request_t *r, \
+			struct fdfs_http_response *pResponse)
+{
+	ngx_table_elt_t  *cc;
+
+	cc = ngx_list_push(&r->headers_out.headers);
+	if (cc == NULL)
+	{
+		return NGX_ERROR;
+       	}
+
+	cc->hash = 1;
+	cc->key.len = sizeof("Content-Disposition") - 1;
+	cc->key.data = (u_char *)"Content-Disposition";
+	cc->lowcase_key = (u_char *)"content-disposition";
+
+	cc->value.len = snprintf(pResponse->content_disposition, \
+		sizeof(pResponse->content_disposition), \
+		"attachment; filename=%s", pResponse->attachment_filename);
+	cc->value.data = (u_char *)pResponse->content_disposition;
+
+	return NGX_OK;
+}
+
 static ngx_int_t fdfs_set_location(ngx_http_request_t *r, \
 			struct fdfs_http_response *pResponse)
 {
@@ -103,6 +127,7 @@ static ngx_int_t fdfs_set_location(ngx_http_request_t *r, \
 		cc->hash = 1;
 		cc->key.len = sizeof("Location") - 1;
 		cc->key.data = (u_char *)"Location";
+		cc->lowcase_key = (u_char *)"location";
 	}
 
 	cc->value.len = pResponse->redirect_url_len;
@@ -120,6 +145,8 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 	{
 		return;
 	}
+
+	logInfo("status=%d, attachment_filename=%s", pResponse->status, pResponse->attachment_filename);
 
 	pResponse->header_outputed = true;
 
@@ -142,7 +169,15 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		}
 
 		r->headers_out.content_length_n = pResponse->content_length;
+		if (pResponse->attachment_filename != NULL)
+		{
+			fdfs_set_content_disposition(r, pResponse);
+		}
 	}
+
+	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+		"status=%d, attachment_filename=%s", pResponse->status, pResponse->attachment_filename);
+			
 
 	rc = ngx_http_send_header(r);
 	if (rc == NGX_ERROR || rc > NGX_OK)
