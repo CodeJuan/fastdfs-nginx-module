@@ -104,7 +104,7 @@ static ngx_int_t fdfs_set_content_disposition(ngx_http_request_t *r, \
 
 	cc->value.len = snprintf(pResponse->content_disposition, \
 		sizeof(pResponse->content_disposition), \
-		"attachment; filename=%s", pResponse->attachment_filename);
+		"attachment; filename=\"%s\"", pResponse->attachment_filename);
 	cc->value.data = (u_char *)pResponse->content_disposition;
 
 	return NGX_OK;
@@ -146,8 +146,6 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		return;
 	}
 
-	logInfo("status=%d, attachment_filename=%s", pResponse->status, pResponse->attachment_filename);
-
 	pResponse->header_outputed = true;
 
 	r = (ngx_http_request_t *)arg;
@@ -174,10 +172,6 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 			fdfs_set_content_disposition(r, pResponse);
 		}
 	}
-
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
-		"status=%d, attachment_filename=%s", pResponse->status, pResponse->attachment_filename);
-			
 
 	rc = ngx_http_send_header(r);
 	if (rc == NGX_ERROR || rc > NGX_OK)
