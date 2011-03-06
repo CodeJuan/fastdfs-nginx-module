@@ -180,7 +180,7 @@ int fdfs_mod_init()
 	load_local_host_ip_addrs();
 	fdfs_get_params_from_tracker();
 	
-	logInfo("fastdfs nginx module v1.04, " \
+	logInfo("fastdfs apache / nginx module v1.04, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
 		"connect_timeout=%d, "\
