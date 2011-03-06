@@ -180,7 +180,8 @@ int fdfs_mod_init()
 	load_local_host_ip_addrs();
 	fdfs_get_params_from_tracker();
 	
-	logInfo("response_mode=%s, " \
+	logInfo("fastdfs nginx module v1.04, " \
+		"response_mode=%s, " \
 		"base_path=%s, " \
 		"connect_timeout=%d, "\
 		"network_timeout=%d, "\
@@ -219,9 +220,6 @@ int fdfs_mod_init()
 
 #define OUTPUT_HEADERS(pContext, pResponse, http_status) \
 	pResponse->status = http_status;  \
-	logInfo("http_status=%d", http_status); \
-	logInfo("=%d", http_status); \
-	logInfo("attachment_filename1=%s", pResponse->attachment_filename); \
 	pContext->output_headers(pContext->arg, pResponse);
 
 int fdfs_download_callback(void *arg, const int64_t file_size, \
@@ -446,8 +444,6 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	response.attachment_filename = fdfs_http_get_parameter("filename", \
 						params, param_count);
-	logInfo("attachment_filename2=%s", response.attachment_filename);
-
 	if (!bFileExists)
 	{
 		char *redirect;
@@ -465,7 +461,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			OUTPUT_HEADERS(pContext, (&response), HTTP_NOTFOUND)
 			return HTTP_NOTFOUND;
 		}
-		logInfo("source ip addr: %s", file_info.source_ip_addr);
+		//logInfo("source ip addr: %s", file_info.source_ip_addr);
 
 		redirect = fdfs_http_get_parameter("redirect", \
 						params, param_count);
