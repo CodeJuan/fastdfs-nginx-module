@@ -442,6 +442,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		bFileExists = true;
 	}
 
+	response.last_modified = file_info.create_timestamp;
 	response.attachment_filename = fdfs_http_get_parameter("filename", \
 						params, param_count);
 	if (!bFileExists)
@@ -660,3 +661,19 @@ static int fdfs_get_params_from_tracker()
 
         return 0;
 }
+
+int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size)
+{
+	struct tm tm;
+	struct tm *ptm;
+
+	*buff = '\0';
+	if ((ptm=gmtime_r(&t, &tm)) == NULL)
+	{
+		return errno != 0 ? errno : EFAULT;
+	}
+
+	strftime(buff, buff_size, "%a, %d %b %Y %H:%M:%S GMT", ptm);
+	return 0;
+}
+

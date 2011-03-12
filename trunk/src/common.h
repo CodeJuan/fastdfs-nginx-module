@@ -9,6 +9,7 @@
 #ifndef COMMON_H
 #define COMMON_H
 
+#include <time.h>
 #include "tracker_types.h"
 
 #ifndef HTTP_OK
@@ -66,12 +67,14 @@ typedef int (*FDFSProxyHandler)(void *arg, const char *dest_ip_addr);
 
 struct fdfs_http_response {
 	int status;  //HTTP status
+	time_t last_modified;  //last modified time of the file
 	int redirect_url_len;
 	int64_t content_length;
 	char *content_type;
 	char *attachment_filename;
 	char redirect_url[256];
 	char content_disposition[128];
+	char last_modified_buff[32];
 	bool header_outputed;   //if header output
 };
 
@@ -107,6 +110,16 @@ int fdfs_mod_init();
 * return: http status code, HTTP_OK success, != HTTP_OK fail
 */
 int fdfs_http_request_handler(struct fdfs_http_context *pContext);
+
+/**
+* format http datetime
+* params:
+*	t the time
+*       buff the string buffer
+*       buff_size the buffer size
+* return: 0 success, !=0 fail, return the error code
+*/
+int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size);
 
 #ifdef __cplusplus
 }

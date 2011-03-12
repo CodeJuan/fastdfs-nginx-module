@@ -1,6 +1,7 @@
 
-Version 1.04  2011-03-05
+Version 1.04  2011-03-12
  * support url parameter "filename" to specify attachment filename
+ * add Last-Modified header
 
 Version 1.03  2011-01-31
  * use FastDFS V2.08 client library
