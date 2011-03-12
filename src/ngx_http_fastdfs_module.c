@@ -171,6 +171,8 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		{
 			fdfs_set_content_disposition(r, pResponse);
 		}
+
+		r->headers_out.last_modified_time = pResponse->last_modified;
 	}
 
 	rc = ngx_http_send_header(r);
