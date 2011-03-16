@@ -39,6 +39,7 @@ static FDFSHTTPParams g_http_params;
 static int storage_sync_file_max_delay = 24 * 3600;
 
 static int fdfs_get_params_from_tracker();
+static int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size);
 
 int fdfs_mod_init()
 {
@@ -430,6 +431,24 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return http_status;
 	}
 
+	response.last_modified = file_info.create_timestamp;
+	fdfs_format_http_datetime(response.last_modified, \
+		response.last_modified_buff, \
+		sizeof(response.last_modified_buff));
+	if (*pContext->if_modified_since != '\0' && \
+		strcmp(response.last_modified_buff, \
+			pContext->if_modified_since) == 0)
+	{
+		OUTPUT_HEADERS(pContext, (&response), HTTP_NOTMODIFIED)
+		return HTTP_NOTMODIFIED;
+	}
+
+	/*
+	logError("last_modified: %s, if_modified_since: %s, strcmp=%d", \
+		response.last_modified_buff, pContext->if_modified_since, \
+		strcmp(response.last_modified_buff, pContext->if_modified_since));
+	*/
+
 	full_filename_len = snprintf(full_filename, sizeof(full_filename), \
 			"%s/%s", pContext->document_root, filename);
 	memset(&file_stat, 0, sizeof(file_stat));
@@ -441,18 +460,6 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		bFileExists = true;
 	}
-
-	response.last_modified = file_info.create_timestamp;
-	fdfs_format_http_datetime(response.last_modified, \
-		response.last_modified_buff, \
-		sizeof(response.last_modified_buff));
-
-	/*
-	//TODO:
-	logError("last_modified: %s, if_modified_since: %s, strcmp=%d", \
-		response.last_modified_buff, pContext->if_modified_since, \
-		strcmp(response.last_modified_buff, pContext->if_modified_since));
-	*/
 
 	response.attachment_filename = fdfs_http_get_parameter("filename", \
 						params, param_count);
@@ -673,7 +680,7 @@ static int fdfs_get_params_from_tracker()
         return 0;
 }
 
-int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size)
+static int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size)
 {
 	struct tm tm;
 	struct tm *ptm;
