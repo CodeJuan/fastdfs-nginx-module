@@ -760,6 +760,7 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	*(path.data + root_length) = '\0';
 	*(r->unparsed_uri.data + r->unparsed_uri.len) = '\0';
 
+	memset(&context, 0, sizeof(context));
 	context.arg = r;
 	context.header_only = r->header_only;
 	context.url = (char *)r->unparsed_uri.data;
@@ -770,7 +771,18 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	context.proxy_handler = ngx_http_fastdfs_proxy_handler;
 	context.server_port = ntohs(((struct sockaddr_in *)r->connection-> \
 					local_sockaddr)->sin_port);
-	
+
+	if (r->headers_in.if_modified_since != NULL)
+	{
+		if (r->headers_in.if_modified_since->value.len < \
+			sizeof(context.if_modified_since))
+		{
+			memcpy(context.if_modified_since, \
+				r->headers_in.if_modified_since->value.data, \
+				r->headers_in.if_modified_since->value.len);
+		}
+	}
+
 	return fdfs_http_request_handler(&context);
 }
 

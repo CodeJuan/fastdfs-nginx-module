@@ -81,6 +81,7 @@ struct fdfs_http_response {
 struct fdfs_http_context {
 	int server_port;
 	bool header_only;
+	char if_modified_since[32];
 	const char *document_root;
 	char *url;
 	void *arg; //for callback

@@ -443,6 +443,17 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	}
 
 	response.last_modified = file_info.create_timestamp;
+	fdfs_format_http_datetime(response.last_modified, \
+		response.last_modified_buff, \
+		sizeof(response.last_modified_buff));
+
+	/*
+	//TODO:
+	logError("last_modified: %s, if_modified_since: %s, strcmp=%d", \
+		response.last_modified_buff, pContext->if_modified_since, \
+		strcmp(response.last_modified_buff, pContext->if_modified_since));
+	*/
+
 	response.attachment_filename = fdfs_http_get_parameter("filename", \
 						params, param_count);
 	if (!bFileExists)
