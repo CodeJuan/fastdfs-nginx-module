@@ -130,17 +130,21 @@ int fdfs_mod_init()
 	url_have_group_name = iniGetBoolValue(NULL, "url_have_group_name", \
 						&iniContext, false);
 	pGroupName = iniGetStrValue(NULL, "group_name", &iniContext);
-	if (pGroupName != NULL)
-	{
-		snprintf(group_name, sizeof(group_name), "%s", pGroupName);
-	}
-
-	group_name_len = strlen(group_name);
-	if ((!url_have_group_name) && group_name_len == 0)
+	if (pGroupName == NULL)
 	{
 		logError("file: "__FILE__", line: %d, " \
 			"you must set parameter: group_name!", __LINE__);
 		result = ENOENT;
+		break;
+	}
+
+	group_name_len = snprintf(group_name, sizeof(group_name), \
+				"%s", pGroupName);
+	if (group_name_len == 0)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"parameter: group_name can't be empty!", __LINE__);
+		result = EINVAL;
 		break;
 	}
 
@@ -272,6 +276,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	struct fdfs_http_response response;
 	FDFSFileInfo file_info;
 	bool bFileExists;
+	bool bSameGroup;  //if in my group
 
 	memset(&response, 0, sizeof(response));
 	response.status = HTTP_OK;
@@ -330,10 +335,15 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 			return HTTP_BADREQUEST;
 		}
+
+		bSameGroup = (file_id_without_group - file_id == \
+				group_name_len) && (memcmp(file_id, group_name,\
+						group_name_len) == 0);
 		file_id_without_group++;  //skip /
 	}
 	else
 	{
+		bSameGroup = true;
 		file_id_without_group = uri + 1; //skip /
 		snprintf(file_id, sizeof(file_id), "%s/%s", \
 			group_name, file_id_without_group);
@@ -467,11 +477,11 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		char *redirect;
 
-		if (is_local_host_ip(file_info.source_ip_addr) || \
-		(file_info.create_timestamp > 0 && (time(NULL) - \
-		file_info.create_timestamp > storage_sync_file_max_delay)))
+		if (bSameGroup && (is_local_host_ip(file_info.source_ip_addr) \
+			|| (file_info.create_timestamp > 0 && (time(NULL) - \
+			file_info.create_timestamp > storage_sync_file_max_delay))))
 		{
-			logDebug("file: "__FILE__", line: %d, " \
+			logError("file: "__FILE__", line: %d, " \
 				"file: %s not exists, " \
 				"errno: %d, error info: %s", \
 				__LINE__, full_filename, \

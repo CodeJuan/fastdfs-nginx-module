@@ -1,3 +1,6 @@
+Version 1.06  2011-05-03
+ * bug fixed: cross group does not proxy or redirect when the file upload
+   one day ago
 
 Version 1.05  2011-03-16
  * support request header if_modified_since
