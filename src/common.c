@@ -25,6 +25,7 @@
 #include "fdfs_http_shared.h"
 #include "fdfs_client.h"
 #include "local_ip_func.h"
+#include "trunk_shared.h"
 #include "common.h"
 
 #define FDFS_MOD_REPONSE_MODE_PROXY	'P'
@@ -45,7 +46,6 @@ int fdfs_mod_init()
 {
         IniContext iniContext;
 	int result;
-	char *pBasePath;
 	char *pLogFilename;
 	char *pReponseMode;
 	char *pGroupName;
@@ -63,32 +63,8 @@ int fdfs_mod_init()
 
 	do
 	{
-	pBasePath = iniGetStrValue(NULL, "base_path", &iniContext);
-	if (pBasePath == NULL)
+	if ((result=storage_load_paths_from_conf_file(&iniContext)) != 0)
 	{
-		logError("file: "__FILE__", line: %d, " \
-			"conf file \"%s\" must have item " \
-			"\"base_path\"!", __LINE__, FDFS_MOD_CONF_FILENAME);
-		result = ENOENT;
-		break;
-	}
-
-	snprintf(g_fdfs_base_path, sizeof(g_fdfs_base_path), "%s", pBasePath);
-	chopPath(g_fdfs_base_path);
-	if (!fileExists(g_fdfs_base_path))
-	{
-		logError("file: "__FILE__", line: %d, " \
-			"\"%s\" can't be accessed, error info: %s", \
-			__LINE__, g_fdfs_base_path, strerror(errno));
-		result = errno != 0 ? errno : ENOENT;
-		break;
-	}
-	if (!isDir(g_fdfs_base_path))
-	{
-		logError("file: "__FILE__", line: %d, " \
-			"\"%s\" is not a directory!", \
-			__LINE__, g_fdfs_base_path);
-		result = ENOTDIR;
 		break;
 	}
 
@@ -261,15 +237,17 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	int param_count;
 	char *p;
 	char *filename;
-	char *true_filename;
+	char true_filename[128];
 	char full_filename[MAX_PATH_SIZE + 64];
 	char content_type[64];
 	char file_trunk_buff[FDFS_OUTPUT_CHUNK_SIZE];
 	struct stat file_stat;
+	int64_t file_offset;
 	off_t remain_bytes;
 	int read_bytes;
 	int filename_len;
 	int full_filename_len;
+	int store_path_index;
 	int fd;
 	int result;
 	int http_status;
@@ -277,6 +255,9 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	FDFSFileInfo file_info;
 	bool bFileExists;
 	bool bSameGroup;  //if in my group
+	bool bTrunkFile;
+	FDFSTrunkFullInfo trunkInfo;
+        FDFSTrunkHeader trunkHeader;
 
 	memset(&response, 0, sizeof(response));
 	response.status = HTTP_OK;
@@ -399,25 +380,11 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	//logInfo("filename=%s", filename);
 
-	if (filename_len <= FDFS_FILE_PATH_LEN)
+	if (storage_split_filename_ex(filename, \
+		&filename_len, true_filename, &store_path_index) != 0)
 	{
 		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 		return HTTP_BADREQUEST;
-	}
-
-	if (*filename != FDFS_STORAGE_STORE_PATH_PREFIX_CHAR)
-        { /* version < V1.12 */
-		true_filename = filename;
-        }
-	else if (*(filename + 3) != '/')
-	{
-		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
-		return HTTP_BADREQUEST;
-	}
-	else
-	{
-		filename_len -= 4;  //skip Mxx/
-		true_filename = filename + 4;
 	}
 	
 	if (fdfs_check_data_filename(true_filename, filename_len) != 0)
@@ -459,10 +426,9 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		strcmp(response.last_modified_buff, pContext->if_modified_since));
 	*/
 
-	full_filename_len = snprintf(full_filename, sizeof(full_filename), \
-			"%s/%s", pContext->document_root, filename);
 	memset(&file_stat, 0, sizeof(file_stat));
-	if (stat(full_filename, &file_stat) != 0)
+	if (trunk_file_stat(store_path_index, true_filename, filename_len, \
+			&file_stat, &trunkInfo, &trunkHeader) != 0)
 	{
 		bFileExists = false;
 	}
@@ -482,9 +448,9 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			file_info.create_timestamp > storage_sync_file_max_delay))))
 		{
 			logError("file: "__FILE__", line: %d, " \
-				"file: %s not exists, " \
+				"logic file: %s not exists, " \
 				"errno: %d, error info: %s", \
-				__LINE__, full_filename, \
+				__LINE__, filename, \
 				errno, strerror(errno));
 
 			OUTPUT_HEADERS(pContext, (&response), HTTP_NOTFOUND)
@@ -618,8 +584,25 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return http_status;
 	}
 
+	bTrunkFile = STORAGE_IS_TRUNK_FILE(trunkInfo);
+	if (bTrunkFile)
+	{
+		trunk_get_full_filename(&trunkInfo, full_filename, \
+				sizeof(full_filename));
+		full_filename_len = strlen(full_filename);
+		file_offset = TRUNK_FILE_START_OFFSET(trunkInfo);
+	}
+	else
+	{
+		full_filename_len = snprintf(full_filename, \
+				sizeof(full_filename), "%s/%s", \
+				g_fdfs_store_paths[store_path_index], \
+				true_filename);
+		file_offset = 0;
+	}
+
 	response.content_length = file_stat.st_size;
-	if (pContext->send_file != NULL)
+	if (pContext->send_file != NULL && !bTrunkFile)
 	{
 		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
 		return pContext->send_file(pContext->arg, full_filename, \
@@ -636,6 +619,16 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		OUTPUT_HEADERS(pContext, (&response), HTTP_SERVUNAVAIL)
 		return HTTP_SERVUNAVAIL;
 	}
+	if (file_offset > 0 && lseek(fd, file_offset, SEEK_SET) < 0)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"lseek file: %s fail, " \
+			"errno: %d, error info: %s", \
+			__LINE__, full_filename, \
+			errno, STRERROR(errno));
+		OUTPUT_HEADERS(pContext, (&response), HTTP_INTERNAL_SERVER_ERROR)
+		return HTTP_INTERNAL_SERVER_ERROR;
+	}
 
 	OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
 
@@ -651,7 +644,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				"read from file %s fail, " \
 				"errno: %d, error info: %s", __LINE__, \
 				full_filename, errno, strerror(errno));
-			return HTTP_SERVUNAVAIL;
+			return HTTP_INTERNAL_SERVER_ERROR;
 		}
 
 		remain_bytes -= read_bytes;
@@ -660,7 +653,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			read_bytes) != 0)
 		{
 			close(fd);
-			return HTTP_SERVUNAVAIL;
+			return HTTP_INTERNAL_SERVER_ERROR;
 		}
 	}
 
