@@ -1,6 +1,7 @@
-Version 1.06  2011-05-03
+Version 1.06  2011-05-22
  * bug fixed: cross group does not proxy or redirect when the file upload
    one day ago
+ * support trunk file (FastDFS server version >= 3.00)
 
 Version 1.05  2011-03-16
  * support request header if_modified_since
