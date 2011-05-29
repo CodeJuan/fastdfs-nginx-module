@@ -52,6 +52,7 @@ int fdfs_mod_init()
 	char *pIfAliasPrefix;
 
 	log_init();
+	trunk_shared_init();
 
 	if ((result=iniLoadFromFile(FDFS_MOD_CONF_FILENAME, &iniContext)) != 0)
 	{
