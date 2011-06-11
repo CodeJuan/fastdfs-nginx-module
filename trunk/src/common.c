@@ -427,9 +427,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		strcmp(response.last_modified_buff, pContext->if_modified_since));
 	*/
 
+	fd = -1;
 	memset(&file_stat, 0, sizeof(file_stat));
-	if (trunk_file_stat(store_path_index, true_filename, filename_len, \
-			&file_stat, &trunkInfo, &trunkHeader) != 0)
+	if (trunk_file_stat_ex(store_path_index, true_filename, filename_len, \
+			&file_stat, &trunkInfo, &trunkHeader, &fd) != 0)
 	{
 		bFileExists = false;
 	}
@@ -531,6 +532,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	if (fdfs_http_get_content_type_by_extname(&g_http_params, \
 		true_filename, content_type, sizeof(content_type)) != 0)
 	{
+		if (fd >= 0)
+		{
+			close(fd);
+		}
 		OUTPUT_HEADERS(pContext, (&response), HTTP_SERVUNAVAIL)
 		return HTTP_SERVUNAVAIL;
 	}
@@ -539,6 +544,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	if (pContext->header_only)
 	{
+		if (fd >= 0)
+		{
+			close(fd);
+		}
 		response.content_length = file_info.file_size;
 		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
 
@@ -585,7 +594,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		return http_status;
 	}
 
-	bTrunkFile = STORAGE_IS_TRUNK_FILE(trunkInfo);
+	bTrunkFile = IS_TRUNK_FILE_BY_ID(trunkInfo);
 	if (bTrunkFile)
 	{
 		trunk_get_full_filename(&trunkInfo, full_filename, \
@@ -610,25 +619,31 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				full_filename_len);
 	}
 
-	fd = open(full_filename, O_RDONLY);
 	if (fd < 0)
 	{
-		logError("file: "__FILE__", line: %d, " \
-			"open file %s fail, " \
-			"errno: %d, error info: %s", __LINE__, \
-			full_filename, errno, strerror(errno));
-		OUTPUT_HEADERS(pContext, (&response), HTTP_SERVUNAVAIL)
-		return HTTP_SERVUNAVAIL;
-	}
-	if (file_offset > 0 && lseek(fd, file_offset, SEEK_SET) < 0)
-	{
-		logError("file: "__FILE__", line: %d, " \
-			"lseek file: %s fail, " \
-			"errno: %d, error info: %s", \
-			__LINE__, full_filename, \
-			errno, STRERROR(errno));
-		OUTPUT_HEADERS(pContext, (&response), HTTP_INTERNAL_SERVER_ERROR)
-		return HTTP_INTERNAL_SERVER_ERROR;
+		fd = open(full_filename, O_RDONLY);
+		if (fd < 0)
+		{
+			logError("file: "__FILE__", line: %d, " \
+				"open file %s fail, " \
+				"errno: %d, error info: %s", __LINE__, \
+				full_filename, errno, strerror(errno));
+				OUTPUT_HEADERS(pContext, (&response), \
+						HTTP_SERVUNAVAIL)
+			return HTTP_SERVUNAVAIL;
+		}
+		if (file_offset > 0 && lseek(fd, file_offset, SEEK_SET) < 0)
+		{
+			close(fd);
+			logError("file: "__FILE__", line: %d, " \
+				"lseek file: %s fail, " \
+				"errno: %d, error info: %s", \
+				__LINE__, full_filename, \
+				errno, STRERROR(errno));
+			OUTPUT_HEADERS(pContext, (&response), \
+					HTTP_INTERNAL_SERVER_ERROR)
+			return HTTP_INTERNAL_SERVER_ERROR;
+		}
 	}
 
 	OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
