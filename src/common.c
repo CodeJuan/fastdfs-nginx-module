@@ -268,15 +268,19 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	url_len = strlen(pContext->url);
 	if (url_len < 16)
 	{
+		logError("file: "__FILE__", line: %d, " \
+			"url length: %d < 16", __LINE__, url_len);
 		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 		return HTTP_BADREQUEST;
 	}
 
 	if (strncasecmp(pContext->url, "http://", 7) == 0)
 	{
-		p = strchr(pContext->url+7, '/');
+		p = strchr(pContext->url + 7, '/');
 		if (p == NULL)
 		{
+			logError("file: "__FILE__", line: %d, " \
+				"invalid url: %s", __LINE__, pContext->url);
 			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 			return HTTP_BADREQUEST;
 		}
@@ -292,6 +296,9 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	if (uri_len + 1 >= (int)sizeof(uri))
 	{
+		logError("file: "__FILE__", line: %d, " \
+			"uri length: %d is too long, >= %d", __LINE__, \
+			uri_len, (int)sizeof(uri));
 		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 		return HTTP_BADREQUEST;
 	}
@@ -314,6 +321,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		file_id_without_group = strchr(file_id, '/');
 		if (file_id_without_group == NULL)
 		{
+			logError("file: "__FILE__", line: %d, " \
+				"no group name in url, uri: %s", __LINE__, uri);
 			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 			return HTTP_BADREQUEST;
 		}
@@ -333,6 +342,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	if (strlen(file_id_without_group) < 22)
 	{
+		logError("file: "__FILE__", line: %d, " \
+			"file id is too short, length: %d < 22, " \
+			"uri: %s", __LINE__, \
+			(int)strlen(file_id_without_group), uri);
 		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 		return HTTP_BADREQUEST;
 	}
@@ -347,15 +360,23 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		ts = fdfs_http_get_parameter("ts", params, param_count);
 		if (token == NULL || ts == NULL)
 		{
+			logError("file: "__FILE__", line: %d, " \
+				"expect parameter token or ts in url, " \
+				"uri: %s", __LINE__, uri);
 			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 			return HTTP_BADREQUEST;
 		}
 
 		timestamp = atoi(ts);
-		if (fdfs_http_check_token(&g_http_params.anti_steal_secret_key,\
-					file_id_without_group, timestamp, token, \
-					g_http_params.token_ttl) != 0)
+		if ((result=fdfs_http_check_token( \
+				&g_http_params.anti_steal_secret_key, \
+				file_id_without_group, timestamp, token, \
+				g_http_params.token_ttl)) != 0)
 		{
+			logError("file: "__FILE__", line: %d, " \
+				"check token fail, uri: %s, " \
+				"errno: %d, error info: %s", \
+				__LINE__, uri, result, STRERROR(result));
 			if (*(g_http_params.token_check_fail_content_type))
 			{
 				response.content_length = g_http_params.token_check_fail_buff.length;
