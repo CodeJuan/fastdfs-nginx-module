@@ -1,3 +1,6 @@
+Version 1.07  2011-07-24
+ * add more error log
+
 Version 1.06  2011-06-11
  * bug fixed: cross group does not proxy or redirect when the file upload
    one day ago
