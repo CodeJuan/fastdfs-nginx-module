@@ -626,7 +626,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	else
 	{
 		full_filename_len = snprintf(full_filename, \
-				sizeof(full_filename), "%s/%s", \
+				sizeof(full_filename), "%s/data/%s", \
 				g_fdfs_store_paths[store_path_index], \
 				true_filename);
 		file_offset = 0;
