@@ -1,5 +1,6 @@
-Version 1.07  2011-07-24
+Version 1.07  2011-07-31
  * add more error log
+ * bug fixed: miss sub dir data in data path
 
 Version 1.06  2011-06-11
  * bug fixed: cross group does not proxy or redirect when the file upload
