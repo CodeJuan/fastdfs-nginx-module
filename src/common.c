@@ -165,6 +165,7 @@ int fdfs_mod_init()
 	logInfo("fastdfs apache / nginx module v1.07, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
+		"path_count=%d, " \
 		"connect_timeout=%d, "\
 		"network_timeout=%d, "\
 		"tracker_server_count=%d, " \
@@ -182,7 +183,7 @@ int fdfs_mod_init()
 		"storage_sync_file_max_delay=%ds", \
 		response_mode == FDFS_MOD_REPONSE_MODE_PROXY ? \
 			"proxy" : "redirect", \
-		g_fdfs_base_path, g_fdfs_connect_timeout, \
+		g_fdfs_base_path, g_fdfs_path_count, g_fdfs_connect_timeout, \
 		g_fdfs_network_timeout, g_tracker_group.server_count, \
 		storage_server_port, group_name, \
 		g_if_alias_prefix, g_local_host_ip_count, \
