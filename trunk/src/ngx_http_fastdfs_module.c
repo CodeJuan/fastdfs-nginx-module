@@ -86,8 +86,9 @@ ngx_module_t  ngx_http_fastdfs_module = {
     NGX_MODULE_V1_PADDING
 };
 
-static ngx_int_t fdfs_set_content_disposition(ngx_http_request_t *r, \
-			struct fdfs_http_response *pResponse)
+static ngx_int_t fdfs_set_header(ngx_http_request_t *r, \
+	const char *key, const char *low_key, const int key_len, \
+	char *value, const int value_len)
 {
 	ngx_table_elt_t  *cc;
 
@@ -98,16 +99,38 @@ static ngx_int_t fdfs_set_content_disposition(ngx_http_request_t *r, \
        	}
 
 	cc->hash = 1;
-	cc->key.len = sizeof("Content-Disposition") - 1;
-	cc->key.data = (u_char *)"Content-Disposition";
-	cc->lowcase_key = (u_char *)"content-disposition";
-
-	cc->value.len = snprintf(pResponse->content_disposition, \
-		sizeof(pResponse->content_disposition), \
-		"attachment; filename=\"%s\"", pResponse->attachment_filename);
-	cc->value.data = (u_char *)pResponse->content_disposition;
+	cc->key.len = key_len;
+	cc->key.data = (u_char *)key;
+	cc->lowcase_key = (u_char *)low_key;
+	cc->value.len = value_len;
+	cc->value.data = (u_char *)value;
 
 	return NGX_OK;
+}
+
+static ngx_int_t fdfs_set_content_disposition(ngx_http_request_t *r, \
+			struct fdfs_http_response *pResponse)
+{
+	int value_len;
+	value_len = snprintf(pResponse->content_disposition, \
+		sizeof(pResponse->content_disposition), \
+		"attachment; filename=\"%s\"", pResponse->attachment_filename);
+	return fdfs_set_header(r, "Content-Disposition", "content-disposition",\
+		sizeof("Content-Disposition") - 1, \
+		pResponse->content_disposition, value_len);
+}
+
+static ngx_int_t fdfs_set_range(ngx_http_request_t *r, \
+			struct fdfs_http_response *pResponse)
+{
+	return fdfs_set_header(r, "Range", "range", \
+		sizeof("Range") - 1, pResponse->range, pResponse->range_len);
+}
+
+static ngx_int_t fdfs_set_accept_ranges(ngx_http_request_t *r)
+{
+	return fdfs_set_header(r, "Accept-Ranges", "accept-ranges", \
+		sizeof("Accept-Ranges") - 1, "bytes", sizeof("bytes") - 1);
 }
 
 static ngx_int_t fdfs_set_location(ngx_http_request_t *r, \
@@ -151,7 +174,8 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 	r = (ngx_http_request_t *)arg;
 	r->headers_out.status = pResponse->status;
 
-	if (pResponse->status != HTTP_OK)
+	if (pResponse->status != HTTP_OK \
+	 && pResponse->status != HTTP_PARTIAL_CONTENT)
 	{
 		if (pResponse->status == HTTP_MOVETEMP)
 		{
@@ -173,6 +197,11 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		}
 
 		r->headers_out.last_modified_time = pResponse->last_modified;
+		if (pResponse->status == HTTP_PARTIAL_CONTENT)
+		{
+			fdfs_set_range(r, pResponse);
+		}
+		fdfs_set_accept_ranges(r);
 	}
 
 	rc = ngx_http_send_header(r);
