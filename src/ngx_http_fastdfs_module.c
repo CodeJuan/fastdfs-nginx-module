@@ -812,6 +812,33 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 		}
 	}
 
+	if (r->headers_in.range != NULL)
+	{
+		char buff[64];
+		if (r->headers_in.range->value.len >= sizeof(buff))
+		{
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, \
+				"bad request, range length: %d exceeds buff " \
+				"size: %d, range: %*s", \
+				r->headers_in.range->value.len, \
+				(int)sizeof(buff), \
+				r->headers_in.range->value.len, \
+				r->headers_in.range->value.data);
+			return NGX_HTTP_BAD_REQUEST;
+		}
+
+		memcpy(buff, r->headers_in.range->value.data, \
+				r->headers_in.range->value.len);
+		*(buff + r->headers_in.range->value.len) = '\0';
+		if (fdfs_parse_range(buff, &(context.range)) != 0)
+		{
+			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, \
+				"bad request, invalid range: %s", buff);
+			return NGX_HTTP_BAD_REQUEST;
+		}
+		context.if_range = true;
+	}
+
 	return fdfs_http_request_handler(&context);
 }
 

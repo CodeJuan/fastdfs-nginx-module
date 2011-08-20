@@ -206,7 +206,7 @@ int fdfs_mod_init()
 	pResponse->status = http_status;  \
 	pContext->output_headers(pContext->arg, pResponse);
 
-int fdfs_download_callback(void *arg, const int64_t file_size, \
+static int fdfs_download_callback(void *arg, const int64_t file_size, \
 		const char *data, const int current_size)
 {
 	struct fdfs_download_callback_args *pCallbackArgs;
@@ -225,6 +225,56 @@ int fdfs_download_callback(void *arg, const int64_t file_size, \
 		pCallbackArgs->pContext->arg, \
 		(pCallbackArgs->sent_bytes == file_size) ? 1 : 0, \
 		data, current_size);
+}
+
+static int fdfs_check_and_format_range(struct fdfs_http_range *range, 
+	const int64_t file_size)
+{
+	if (range->start < 0)
+	{
+		int64_t start;
+		start = range->start + file_size;
+		if (start < 0)
+		{
+			logError("file: "__FILE__", line: %d, " \
+				"invalid range value: "INT64_PRINTF_FORMAT, \
+				__LINE__, range->start);
+			return EINVAL;
+		}
+		range->start = start;
+	}
+	else if (range->start >= file_size)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"invalid range start value: "INT64_PRINTF_FORMAT \
+			", exceeds file size: "INT64_PRINTF_FORMAT, \
+			__LINE__, range->start, file_size);
+		return EINVAL;
+	}
+
+	if (range->end == 0)
+	{
+		range->end = file_size - 1;
+	}
+	else if (range->end >= file_size)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"invalid range end value: "INT64_PRINTF_FORMAT \
+			", exceeds file size: "INT64_PRINTF_FORMAT, \
+			__LINE__, range->end, file_size);
+		return EINVAL;
+	}
+
+	if (range->start > range->end)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"invalid range value, start: "INT64_PRINTF_FORMAT \
+			", exceeds end: "INT64_PRINTF_FORMAT, \
+			__LINE__, range->start, range->end);
+		return EINVAL;
+	}
+
+	return 0;
 }
 
 int fdfs_http_request_handler(struct fdfs_http_context *pContext)
@@ -246,6 +296,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	char file_trunk_buff[FDFS_OUTPUT_CHUNK_SIZE];
 	struct stat file_stat;
 	int64_t file_offset;
+	int64_t file_size;
 	off_t remain_bytes;
 	int read_bytes;
 	int filename_len;
@@ -565,6 +616,52 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	response.content_type = content_type;
 	}
 
+	if (bFileExists)
+	{
+		file_size = file_stat.st_size;
+	}
+	else
+	{
+		bool if_get_file_info;
+		if_get_file_info = pContext->header_only || \
+				(pContext->if_range && file_info.file_size < 0);
+		if (if_get_file_info)
+		{
+			if ((result=fdfs_get_file_info_ex1(file_id, true, \
+				&file_info)) != 0)
+			{
+				if (result == ENOENT)
+				{
+					http_status = HTTP_NOTFOUND;
+				}
+				else
+				{
+					http_status = HTTP_INTERNAL_SERVER_ERROR;
+				}
+
+				OUTPUT_HEADERS(pContext, (&response), http_status)
+				return http_status;
+			}
+		}
+
+		file_size = file_info.file_size;
+	}
+
+	if (pContext->if_range)
+	{
+		if (fdfs_check_and_format_range(&(pContext->range), \
+			file_size) != 0)
+		{
+			if (fd >= 0)
+			{
+				close(fd);
+			}
+
+			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
+			return HTTP_BADREQUEST;
+		}
+	}
+
 	if (pContext->header_only)
 	{
 		if (fd >= 0)
@@ -759,10 +856,13 @@ bytes=9500-
 */
 #define RANGE_PREFIX_STR  "bytes="
 #define RANGE_PREFIX_LEN   (int)(sizeof(RANGE_PREFIX_STR) - 1)
+
 	int len;
 	int result;
 	const char *p;
+	const char *pEndPos;
 	char buff[32];
+
 	len = strlen(value);
 	if (len <= RANGE_PREFIX_LEN + 1)
 	{
@@ -778,6 +878,37 @@ bytes=9500-
 		}
 		range->end = 0;
 		return 0;
+	}
+
+	pEndPos = strchr(p, '-');
+	if (pEndPos == NULL)
+	{
+		return EINVAL;
+	}
+
+	len = pEndPos - p;
+	if (len >= (int)sizeof(buff))
+	{
+		return EINVAL;
+	}
+	memcpy(buff, p, len);
+	*(buff + len) = '\0';
+	if ((result=fdfs_strtoll(buff, &(range->start))) != 0)
+	{
+		return result;
+	}
+
+	pEndPos++; //skip -
+	if (*pEndPos == '\0')
+	{
+		range->end = 0;
+	}
+	else
+	{
+		if ((result=fdfs_strtoll(pEndPos, &(range->end))) != 0)
+		{
+			return result;
+		}
 	}
 
 	return 0;
