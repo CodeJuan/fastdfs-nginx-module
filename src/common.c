@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <limits.h>
 #include <time.h>
 #include "fdfs_define.h"
 #include "logger.h"
@@ -733,6 +734,52 @@ static int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size)
 	}
 
 	strftime(buff, buff_size, "%a, %d %b %Y %H:%M:%S GMT", ptm);
+	return 0;
+}
+
+static int fdfs_strtoll(const char *s, int64_t *value)
+{
+	char *end = NULL;
+	*value = strtoll(s, &end, 10);
+	if (end != NULL && *end != '\0')
+	{
+		return EINVAL;
+	}
+
+	return 0;
+}
+
+int fdfs_parse_range(const char *value, struct fdfs_http_range *range)
+{
+/*
+range format:
+bytes=500-999
+bytes=-500
+bytes=9500-
+*/
+#define RANGE_PREFIX_STR  "bytes="
+#define RANGE_PREFIX_LEN   (int)(sizeof(RANGE_PREFIX_STR) - 1)
+	int len;
+	int result;
+	const char *p;
+	char buff[32];
+	len = strlen(value);
+	if (len <= RANGE_PREFIX_LEN + 1)
+	{
+		return EINVAL;
+	}
+
+	p = value + RANGE_PREFIX_LEN;
+	if (*p == '-')
+	{
+		if ((result=fdfs_strtoll(p, &(range->start))) != 0)
+		{
+			return result;
+		}
+		range->end = 0;
+		return 0;
+	}
+
 	return 0;
 }
 
