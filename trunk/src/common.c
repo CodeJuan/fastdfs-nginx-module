@@ -227,6 +227,27 @@ static int fdfs_download_callback(void *arg, const int64_t file_size, \
 		data, current_size);
 }
 
+static void fdfs_format_range(const struct fdfs_http_range *range, \
+	struct fdfs_http_response *pResponse)
+{
+	if (range->start < 0)
+	{
+		pResponse->range_len = sprintf(pResponse->range, \
+			"bytes="INT64_PRINTF_FORMAT, range->start);
+	}
+	else if (range->end == 0)
+	{
+		pResponse->range_len = sprintf(pResponse->range, \
+			"bytes="INT64_PRINTF_FORMAT"-", range->start);
+	}
+	else
+	{
+		pResponse->range_len = sprintf(pResponse->range, \
+			"bytes="INT64_PRINTF_FORMAT"-"INT64_PRINTF_FORMAT, \
+			range->start, range->end);
+	}
+}
+
 static void fdfs_format_content_range(const struct fdfs_http_range *range, \
 	const int64_t file_size, struct fdfs_http_response *pResponse)
 {
@@ -600,6 +621,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				"redirect to %s", \
 				__LINE__, response.redirect_url);
 
+			if (pContext->if_range)
+			{
+				fdfs_format_range(&(pContext->range), &response);
+			}
 			OUTPUT_HEADERS(pContext, (&response), HTTP_MOVETEMP)
 			return HTTP_MOVETEMP;
 		}
@@ -676,7 +701,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	}
 	else
 	{
-		download_bytes = 0;
+		download_bytes = file_size > 0 ? file_size : 0;
 	}
 
 	if (pContext->header_only)
@@ -685,7 +710,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		{
 			close(fd);
 		}
-		response.content_length = file_info.file_size;
+		response.content_length = download_bytes;
 		OUTPUT_HEADERS(pContext, (&response), pContext->if_range ? \
 			HTTP_PARTIAL_CONTENT : HTTP_OK )
 
@@ -750,7 +775,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		file_offset = pContext->range.start;
 	}
 
-	response.content_length = file_stat.st_size;
+	response.content_length = download_bytes;
 	if (pContext->send_file != NULL && !bTrunkFile)
 	{
 		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)

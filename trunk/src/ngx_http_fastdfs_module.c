@@ -187,6 +187,10 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 	{
 		if (pResponse->status == HTTP_MOVETEMP)
 		{
+			if (pResponse->range_len > 0)
+			{
+				fdfs_set_range(r, pResponse);
+			}
 			fdfs_set_location(r, pResponse);
 		}
 	}
@@ -205,10 +209,6 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		}
 
 		r->headers_out.last_modified_time = pResponse->last_modified;
-		if (pResponse->status == HTTP_PARTIAL_CONTENT)
-		{
-			fdfs_set_range(r, pResponse);
-		}
 		fdfs_set_accept_ranges(r);
 		if (pResponse->content_range_len > 0)
 		{
