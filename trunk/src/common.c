@@ -163,7 +163,7 @@ int fdfs_mod_init()
 	load_local_host_ip_addrs();
 	fdfs_get_params_from_tracker();
 	
-	logInfo("fastdfs apache / nginx module v1.07, " \
+	logInfo("fastdfs apache / nginx module v1.08, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
 		"path_count=%d, " \
@@ -225,6 +225,14 @@ static int fdfs_download_callback(void *arg, const int64_t file_size, \
 		pCallbackArgs->pContext->arg, \
 		(pCallbackArgs->sent_bytes == file_size) ? 1 : 0, \
 		data, current_size);
+}
+
+static void fdfs_format_content_range(const struct fdfs_http_range *range, \
+	const int64_t file_size, struct fdfs_http_response *pResponse)
+{
+	pResponse->content_range_len = sprintf(pResponse->content_range, \
+		"bytes "INT64_PRINTF_FORMAT"-"INT64_PRINTF_FORMAT \
+		"/"INT64_PRINTF_FORMAT, range->start, range->end, file_size);
 }
 
 static int fdfs_check_and_format_range(struct fdfs_http_range *range, 
@@ -297,6 +305,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	struct stat file_stat;
 	int64_t file_offset;
 	int64_t file_size;
+	int64_t download_bytes;
 	off_t remain_bytes;
 	int read_bytes;
 	int filename_len;
@@ -660,6 +669,14 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 			return HTTP_BADREQUEST;
 		}
+
+		download_bytes = (pContext->range.end - pContext->range.start) + 1;
+		fdfs_format_content_range(&(pContext->range), \
+					file_size, &response);
+	}
+	else
+	{
+		download_bytes = 0;
 	}
 
 	if (pContext->header_only)
@@ -669,7 +686,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			close(fd);
 		}
 		response.content_length = file_info.file_size;
-		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
+		OUTPUT_HEADERS(pContext, (&response), pContext->if_range ? \
+			HTTP_PARTIAL_CONTENT : HTTP_OK )
 
 		return HTTP_OK;
 	}
@@ -690,8 +708,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 		result = storage_download_file_ex1(NULL, \
                 	&storage_server, file_id, \
-                	0, 0, fdfs_download_callback, \
-			&callback_args, &file_size);
+                	pContext->range.start, download_bytes, \
+			fdfs_download_callback, &callback_args, &file_size);
 
 		logDebug("file: "__FILE__", line: %d, " \
 			"storage_download_file_ex1 return code: %d, " \
@@ -720,7 +738,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		trunk_get_full_filename(&trunkInfo, full_filename, \
 				sizeof(full_filename));
 		full_filename_len = strlen(full_filename);
-		file_offset = TRUNK_FILE_START_OFFSET(trunkInfo);
+		file_offset = TRUNK_FILE_START_OFFSET(trunkInfo) + \
+				pContext->range.start;
 	}
 	else
 	{
@@ -728,7 +747,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				sizeof(full_filename), "%s/data/%s", \
 				g_fdfs_store_paths[store_path_index], \
 				true_filename);
-		file_offset = 0;
+		file_offset = pContext->range.start;
 	}
 
 	response.content_length = file_stat.st_size;
@@ -736,7 +755,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
 		return pContext->send_file(pContext->arg, full_filename, \
-				full_filename_len);
+				full_filename_len, file_offset, download_bytes);
 	}
 
 	if (fd < 0)
@@ -765,10 +784,27 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			return HTTP_INTERNAL_SERVER_ERROR;
 		}
 	}
+	else
+	{
+		if (pContext->range.start > 0 && \
+			lseek(fd, pContext->range.start, SEEK_CUR) < 0)
+		{
+			close(fd);
+			logError("file: "__FILE__", line: %d, " \
+				"lseek file: %s fail, " \
+				"errno: %d, error info: %s", \
+				__LINE__, full_filename, \
+				errno, STRERROR(errno));
+			OUTPUT_HEADERS(pContext, (&response), \
+					HTTP_INTERNAL_SERVER_ERROR)
+			return HTTP_INTERNAL_SERVER_ERROR;
+		}
+	}
 
-	OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
+	OUTPUT_HEADERS(pContext, (&response), pContext->if_range ? \
+                        HTTP_PARTIAL_CONTENT : HTTP_OK)
 
-	remain_bytes = file_stat.st_size;
+	remain_bytes = download_bytes;
 	while (remain_bytes > 0)
 	{
 		read_bytes = remain_bytes <= FDFS_OUTPUT_CHUNK_SIZE ? \

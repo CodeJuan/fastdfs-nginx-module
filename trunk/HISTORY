@@ -1,5 +1,5 @@
 
-Version 1.08  2011-08-20
+Version 1.08  2011-08-21
  * add store path count in startup log info
  * support HTTP range
 

@@ -66,7 +66,9 @@ typedef void (*FDFSOutputHeaders)(void *arg, struct fdfs_http_response *pRespons
 typedef int (*FDFSSendReplyChunk)(void *arg, const bool last_buff, \
 				const char *buff, const int size);
 typedef int (*FDFSSendFile)(void *arg, const char *filename, \
-		const int filename_len);
+	const int filename_len, const int64_t file_offset, \
+	const int64_t download_bytes);
+
 typedef int (*FDFSProxyHandler)(void *arg, const char *dest_ip_addr);
 
 struct fdfs_http_response {
@@ -74,12 +76,14 @@ struct fdfs_http_response {
 	time_t last_modified;  //last modified time of the file
 	int redirect_url_len;
 	int range_len;
+	int content_range_len;
 	int64_t content_length;
 	char *content_type;
 	char *attachment_filename;
 	char redirect_url[256];
 	char content_disposition[128];
 	char range[64];
+	char content_range[64];
 	char last_modified_buff[32];
 	bool header_outputed;   //if header output
 };
@@ -137,7 +141,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext);
 
 /**
 * parse range parameter
-* params:a
+* params:
 *	value the range value
 *	rang the range object, store start and end position
 * return: 0 success, !=0 fail, return the error code

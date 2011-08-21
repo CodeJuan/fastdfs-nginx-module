@@ -127,6 +127,14 @@ static ngx_int_t fdfs_set_range(ngx_http_request_t *r, \
 		sizeof("Range") - 1, pResponse->range, pResponse->range_len);
 }
 
+static ngx_int_t fdfs_set_content_range(ngx_http_request_t *r, \
+			struct fdfs_http_response *pResponse)
+{
+	return fdfs_set_header(r, "Content-Range", "content-range", \
+		sizeof("Content-Range") - 1, pResponse->content_range, \
+		pResponse->content_range_len);
+}
+
 static ngx_int_t fdfs_set_accept_ranges(ngx_http_request_t *r)
 {
 	return fdfs_set_header(r, "Accept-Ranges", "accept-ranges", \
@@ -202,6 +210,10 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 			fdfs_set_range(r, pResponse);
 		}
 		fdfs_set_accept_ranges(r);
+		if (pResponse->content_range_len > 0)
+		{
+			fdfs_set_content_range(r, pResponse);
+		}
 	}
 
 	rc = ngx_http_send_header(r);
@@ -270,7 +282,8 @@ static int fdfs_send_reply_chunk(void *arg, const bool last_buf, \
 }
 
 static int fdfs_send_file(void *arg, const char *filename, \
-		const int filename_len)
+	const int filename_len, const int64_t file_offset, \
+	const int64_t download_bytes)
 {
 	ngx_http_request_t *r;
 	ngx_http_core_loc_conf_t *ccf;
@@ -354,9 +367,9 @@ static int fdfs_send_file(void *arg, const char *filename, \
 	out.buf = b;
 	out.next = NULL;
 
-        b->file_pos = 0;
-	b->file_last = of.size;
-	b->in_file = b->file_last > 0 ? 1 : 0;
+        b->file_pos = file_offset;
+	b->file_last = file_offset + download_bytes;
+	b->in_file = download_bytes > 0 ? 1 : 0;
 	b->file->fd = of.fd;
 	b->file->name.data = (u_char *)filename;
 	b->file->name.len = filename_len;
