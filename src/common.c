@@ -549,15 +549,15 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		char *redirect;
 
-		logInfo("source ip addr: %s", file_info.source_ip_addr);
-		logInfo("create_timestamp: %d", file_info.create_timestamp);
+		//logInfo("source ip addr: %s", file_info.source_ip_addr);
+		//logInfo("create_timestamp: %d", file_info.create_timestamp);
 
 		if (bSameGroup && (is_local_host_ip(file_info.source_ip_addr) \
 			|| (file_info.create_timestamp > 0 && (time(NULL) - \
 			file_info.create_timestamp > storage_sync_file_max_delay))))
 		{
 			logError("file: "__FILE__", line: %d, " \
-				"logic file: %s not exists" \
+				"logic file: %s not exists", \
 				__LINE__, filename);
 
 			OUTPUT_HEADERS(pContext, (&response), HTTP_NOTFOUND)
