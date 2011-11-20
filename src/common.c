@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <time.h>
+#include <unistd.h>
 #include "fdfs_define.h"
 #include "logger.h"
 #include "shared_func.h"

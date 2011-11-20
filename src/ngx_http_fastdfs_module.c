@@ -843,6 +843,7 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 		memcpy(buff, r->headers_in.range->value.data, \
 				r->headers_in.range->value.len);
 		*(buff + r->headers_in.range->value.len) = '\0';
+		//ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "buff=%s", buff);
 		if (fdfs_parse_range(buff, &(context.range)) != 0)
 		{
 			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, \
@@ -850,6 +851,12 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 			return NGX_HTTP_BAD_REQUEST;
 		}
 		context.if_range = true;
+
+		/*
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, \
+			"if_range=%d, start=%d, end=%d", context.if_range, \
+			(int)context.range.start, (int)context.range.end);
+		*/
 	}
 
 	return fdfs_http_request_handler(&context);
