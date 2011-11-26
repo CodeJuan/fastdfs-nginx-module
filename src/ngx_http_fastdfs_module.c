@@ -823,6 +823,11 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 				r->headers_in.if_modified_since->value.data, \
 				r->headers_in.if_modified_since->value.len);
 		}
+
+		/*
+		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, \
+			"if_modified_since: %s", context.if_modified_since);
+		*/
 	}
 
 	if (r->headers_in.range != NULL)
