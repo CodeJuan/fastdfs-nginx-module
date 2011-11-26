@@ -1,4 +1,7 @@
 
+Version 1.09  2011-11-26
+ * bug fixed: correct HTTP status when nginx send file with range
+
 Version 1.08  2011-08-21
  * add store path count in startup log info
  * support HTTP range

@@ -779,7 +779,9 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	response.content_length = download_bytes;
 	if (pContext->send_file != NULL && !bTrunkFile)
 	{
-		OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
+		http_status = pContext->if_range ? \
+				HTTP_PARTIAL_CONTENT : HTTP_OK;
+		OUTPUT_HEADERS(pContext, (&response), http_status)
 		return pContext->send_file(pContext->arg, full_filename, \
 				full_filename_len, file_offset, download_bytes);
 	}
