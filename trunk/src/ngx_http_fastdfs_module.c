@@ -452,7 +452,7 @@ static ngx_int_t ngx_http_fastdfs_proxy_create_request(ngx_http_request_t *r)
 	u->uri.data = b->last;
 	b->last = ngx_cpymem(b->last, r->unparsed_uri.data, r->unparsed_uri.len);
 
-	if (strchr((char *)r->unparsed_uri.data, '?') != NULL)
+	if (memchr((char *)r->unparsed_uri.data, '?', r->unparsed_uri.len) != NULL)
 	{
 		*b->last++ = '&';
 	}
@@ -780,8 +780,8 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 {
 	struct fdfs_http_context context;
 	ngx_int_t rc;
-	size_t     root_length;  
-	ngx_str_t  path;
+	char url[4096];
+	char *p;
 
 	if (!(r->method & (NGX_HTTP_GET | NGX_HTTP_HEAD))) {
        		return NGX_HTTP_NOT_ALLOWED;
@@ -793,20 +793,28 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 		return rc;
 	}
 
-	if (ngx_http_map_uri_to_path(r, &path, &root_length, 0) == NULL)
+	if (r->uri.len + r->args.len + 1 >= sizeof(url))
 	{
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
-			"call ngx_http_map_uri_to_path fail");
-        	return NGX_HTTP_INTERNAL_SERVER_ERROR;
+			"url too long, exceeds %d bytes!", (int)sizeof(url));
+        	return HTTP_BADREQUEST;
 	}
-	*(path.data + root_length) = '\0';
-	*(r->unparsed_uri.data + r->unparsed_uri.len) = '\0';
+
+	p = url;
+	memcpy(p, r->uri.data, r->uri.len);
+	p += r->uri.len;
+	if (r->args.len > 0)
+	{
+		*p++ = '?';
+		memcpy(p, r->args.data, r->args.len);
+		p += r->args.len;
+	}
+	*p = '\0';
 
 	memset(&context, 0, sizeof(context));
 	context.arg = r;
 	context.header_only = r->header_only;
-	context.url = (char *)r->unparsed_uri.data;
-	context.document_root = (char *)path.data;
+	context.url = url;
 	context.output_headers = fdfs_output_headers;
 	context.send_file = fdfs_send_file;
 	context.send_reply_chunk = fdfs_send_reply_chunk;
@@ -863,6 +871,12 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 			(int)context.range.start, (int)context.range.end);
 		*/
 	}
+
+	/*
+	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, \
+			"args=%*s, uri=%*s", r->args.len, r->args.data, \
+			r->uri.len, r->uri.data);
+	*/
 
 	return fdfs_http_request_handler(&context);
 }

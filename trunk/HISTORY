@@ -1,4 +1,8 @@
 
+Version 1.10  2012-01-03
+ * use r->uri and r->args instead of r->unparsed_uri to support 
+   rewrite correctly
+
 Version 1.09  2011-11-26
  * bug fixed: correct HTTP status when nginx send file with range
 
