@@ -48,10 +48,13 @@ int fdfs_mod_init()
 {
         IniContext iniContext;
 	int result;
+	int len;
+	int i;
 	char *pLogFilename;
 	char *pReponseMode;
 	char *pGroupName;
 	char *pIfAliasPrefix;
+	char buff[2 * 1024];
 
 	log_init();
 	trunk_shared_init();
@@ -163,11 +166,18 @@ int fdfs_mod_init()
 
 	load_local_host_ip_addrs();
 	fdfs_get_params_from_tracker();
-	
-	logInfo("fastdfs apache / nginx module v1.09, " \
+
+	len = 0;
+	*buff = '\0';
+	for (i=0; i<g_fdfs_path_count; i++)
+	{
+		len += snprintf(buff + len, sizeof(buff) - len, \
+				"store_path%d=%s, ", i, g_fdfs_store_paths[i]);
+	}
+	logInfo("fastdfs apache / nginx module v1.11, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
-		"path_count=%d, " \
+		"path_count=%d, %s" \
 		"connect_timeout=%d, "\
 		"network_timeout=%d, "\
 		"tracker_server_count=%d, " \
@@ -185,8 +195,9 @@ int fdfs_mod_init()
 		"storage_sync_file_max_delay=%ds", \
 		response_mode == FDFS_MOD_REPONSE_MODE_PROXY ? \
 			"proxy" : "redirect", \
-		g_fdfs_base_path, g_fdfs_path_count, g_fdfs_connect_timeout, \
-		g_fdfs_network_timeout, g_tracker_group.server_count, \
+		g_fdfs_base_path, g_fdfs_path_count, buff, \
+		g_fdfs_connect_timeout, g_fdfs_network_timeout, \
+		g_tracker_group.server_count, \
 		storage_server_port, group_name, \
 		g_if_alias_prefix, g_local_host_ip_count, \
 		g_http_params.need_find_content_type, \
@@ -557,9 +568,22 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			|| (file_info.create_timestamp > 0 && (time(NULL) - \
 			file_info.create_timestamp > storage_sync_file_max_delay))))
 		{
-			logError("file: "__FILE__", line: %d, " \
-				"logic file: %s not exists", \
-				__LINE__, filename);
+			if (IS_TRUNK_FILE_BY_ID(trunkInfo))
+			{
+				logError("file: "__FILE__", line: %d, " \
+					"logic file: %s not exists", \
+					__LINE__, filename);
+			}
+			else
+			{
+				snprintf(full_filename, \
+					sizeof(full_filename), "%s/data/%s", \
+					g_fdfs_store_paths[store_path_index], \
+					true_filename);
+				logError("file: "__FILE__", line: %d, " \
+					"file: %s not exists", \
+					__LINE__, full_filename);
+			}
 
 			OUTPUT_HEADERS(pContext, (&response), HTTP_NOTFOUND)
 			return HTTP_NOTFOUND;
