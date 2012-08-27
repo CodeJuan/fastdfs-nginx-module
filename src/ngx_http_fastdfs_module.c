@@ -177,10 +177,7 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		return;
 	}
 
-	pResponse->header_outputed = true;
-
 	r = (ngx_http_request_t *)arg;
-	r->headers_out.status = pResponse->status;
 
 	if (pResponse->status != HTTP_OK \
 	 && pResponse->status != HTTP_PARTIAL_CONTENT)
@@ -192,6 +189,10 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 				fdfs_set_range(r, pResponse);
 			}
 			fdfs_set_location(r, pResponse);
+		}
+		else
+		{
+			return;  //does not send http header for other status
 		}
 	}
 	else
@@ -216,6 +217,8 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		}
 	}
 
+	r->headers_out.status = pResponse->status;
+	pResponse->header_outputed = true;
 	rc = ngx_http_send_header(r);
 	if (rc == NGX_ERROR || rc > NGX_OK)
 	{
