@@ -1,5 +1,6 @@
-Version 1.11  2012-08-06
+Version 1.11  2012-08-27
  * add more debug info
+ * use nginx error page when HTTP status is not ok
 
 Version 1.10  2012-01-03
  * use r->uri and r->args instead of r->unparsed_uri to support 
