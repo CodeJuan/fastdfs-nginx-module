@@ -174,7 +174,7 @@ int fdfs_mod_init()
 		len += snprintf(buff + len, sizeof(buff) - len, \
 				"store_path%d=%s, ", i, g_fdfs_store_paths[i]);
 	}
-	logInfo("fastdfs apache / nginx module v1.11, " \
+	logInfo("fastdfs apache / nginx module v1.12, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
 		"path_count=%d, %s" \
@@ -474,8 +474,10 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				__LINE__, uri, result, STRERROR(result));
 			if (*(g_http_params.token_check_fail_content_type))
 			{
-				response.content_length = g_http_params.token_check_fail_buff.length;
-				response.content_type = g_http_params.token_check_fail_content_type;
+				response.content_length = g_http_params. \
+						token_check_fail_buff.length;
+				response.content_type = g_http_params. \
+						token_check_fail_content_type;
 				OUTPUT_HEADERS(pContext, (&response), HTTP_OK)
 
 				pContext->send_reply_chunk(pContext->arg, 1, \
@@ -545,8 +547,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	fd = -1;
 	memset(&file_stat, 0, sizeof(file_stat));
-	if (trunk_file_stat_ex(store_path_index, true_filename, filename_len, \
-			&file_stat, &trunkInfo, &trunkHeader, &fd) != 0)
+	if ((result=trunk_file_stat_ex(store_path_index, true_filename, \
+		filename_len, &file_stat, &trunkInfo, &trunkHeader, &fd)) != 0)
 	{
 		bFileExists = false;
 	}
@@ -570,9 +572,20 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		{
 			if (IS_TRUNK_FILE_BY_ID(trunkInfo))
 			{
-				logError("file: "__FILE__", line: %d, " \
-					"logic file: %s not exists", \
-					__LINE__, filename);
+				if (result == ENOENT)
+				{
+					logError("file: "__FILE__", line: %d, "\
+						"logic file: %s not exist", \
+						__LINE__, filename);
+				}
+				else
+				{
+					logError("file: "__FILE__", line: %d, "\
+						"stat logic file: %s fail, " \
+						"errno: %d, error info: %s", \
+						__LINE__, filename, result, \
+						STRERROR(result));
+				}
 			}
 			else
 			{
@@ -580,9 +593,20 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 					sizeof(full_filename), "%s/data/%s", \
 					g_fdfs_store_paths[store_path_index], \
 					true_filename);
-				logError("file: "__FILE__", line: %d, " \
-					"file: %s not exists", \
-					__LINE__, full_filename);
+				if (result == ENOENT)
+				{
+					logError("file: "__FILE__", line: %d, "\
+						"file: %s not exist", \
+						__LINE__, full_filename);
+				}
+				else
+				{
+					logError("file: "__FILE__", line: %d, "\
+						"stat file: %s fail, " \
+						"errno: %d, error info: %s", \
+						__LINE__, full_filename, \
+						result, STRERROR(result));
+				}
 			}
 
 			OUTPUT_HEADERS(pContext, (&response), HTTP_NOTFOUND)
@@ -818,7 +842,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			logError("file: "__FILE__", line: %d, " \
 				"open file %s fail, " \
 				"errno: %d, error info: %s", __LINE__, \
-				full_filename, errno, strerror(errno));
+				full_filename, errno, STRERROR(errno));
 				OUTPUT_HEADERS(pContext, (&response), \
 						HTTP_SERVUNAVAIL)
 			return HTTP_SERVUNAVAIL;
@@ -867,7 +891,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			logError("file: "__FILE__", line: %d, " \
 				"read from file %s fail, " \
 				"errno: %d, error info: %s", __LINE__, \
-				full_filename, errno, strerror(errno));
+				full_filename, errno, STRERROR(errno));
 			return HTTP_INTERNAL_SERVER_ERROR;
 		}
 
