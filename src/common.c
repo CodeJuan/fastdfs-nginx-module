@@ -55,6 +55,7 @@ int fdfs_mod_init()
 	char *pGroupName;
 	char *pIfAliasPrefix;
 	char buff[2 * 1024];
+	bool load_fdfs_parameters_from_tracker = false;
 
 	log_init();
 	trunk_shared_init();
@@ -97,13 +98,6 @@ int fdfs_mod_init()
 		{
 			break;
 		}
-	}
-
-	result = fdfs_load_tracker_group_ex(&g_tracker_group, \
-			FDFS_MOD_CONF_FILENAME, &iniContext);
-	if (result != 0)
-	{
-		break;
 	}
 
 	storage_server_port = iniGetIntValue(NULL, "storage_server_port", \
@@ -156,6 +150,25 @@ int fdfs_mod_init()
 			"%s", pIfAliasPrefix);
 	}
 
+	load_fdfs_parameters_from_tracker = iniGetBoolValue(NULL, \
+				"load_fdfs_parameters_from_tracker", \
+				&iniContext, false);
+	if (load_fdfs_parameters_from_tracker)
+	{
+		result = fdfs_load_tracker_group_ex(&g_tracker_group, \
+				FDFS_MOD_CONF_FILENAME, &iniContext);
+		if (result != 0)
+		{
+			break;
+		}
+	}
+	else
+	{
+		storage_sync_file_max_delay = iniGetIntValue(NULL, \
+				"storage_sync_file_max_delay", \
+                	        &iniContext, 24 * 3600);
+	}
+
 	} while (false);
 
 	iniFreeContext(&iniContext);
@@ -165,7 +178,10 @@ int fdfs_mod_init()
 	}
 
 	load_local_host_ip_addrs();
-	fdfs_get_params_from_tracker();
+	if (load_fdfs_parameters_from_tracker)
+	{
+		fdfs_get_params_from_tracker();
+	}
 
 	len = 0;
 	*buff = '\0';
@@ -192,6 +208,7 @@ int fdfs_mod_init()
 		"anti_steal_secret_key length=%d, "  \
 		"token_check_fail content_type=%s, " \
 		"token_check_fail buff length=%d, "  \
+		"load_fdfs_parameters_from_tracker=%d, " \
 		"storage_sync_file_max_delay=%ds", \
 		response_mode == FDFS_MOD_REPONSE_MODE_PROXY ? \
 			"proxy" : "redirect", \
@@ -207,6 +224,7 @@ int fdfs_mod_init()
 		g_http_params.anti_steal_secret_key.length, \
 		g_http_params.token_check_fail_content_type, \
 		g_http_params.token_check_fail_buff.length, \
+		load_fdfs_parameters_from_tracker, \
 		storage_sync_file_max_delay);
 
 	//print_local_host_ip_addrs();

@@ -1,6 +1,8 @@
 
-Version 1.12  2012-08-28
+Version 1.12  2012-10-20
  * log detail error info when stat file fail
+ * mod_fastdfs.conf add parameter: load_fdfs_parameters_from_tracker, 
+   not load parameters from the FDFS tracker server by default
 
 Version 1.11  2012-08-27
  * add more debug info
