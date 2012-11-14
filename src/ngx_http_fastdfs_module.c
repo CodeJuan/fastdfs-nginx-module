@@ -886,7 +886,6 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 
 static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-	int result;
 	ngx_http_core_loc_conf_t *clcf = ngx_http_conf_get_module_loc_conf(cf, \
 						ngx_http_core_module);
 
@@ -895,19 +894,21 @@ static char *ngx_http_fastdfs_set(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 	/* register hanlder */
 	clcf->handler = ngx_http_fastdfs_handler;
 
-	if ((result=fdfs_mod_init()) != 0)
-	{
-		return NGX_CONF_ERROR;
-	}
-
 	return NGX_CONF_OK;
 }
 
 static ngx_int_t ngx_http_fastdfs_process_init(ngx_cycle_t *cycle)
 {
-    fprintf(stderr, "ngx_http_fastdfs_process_init pid=%d\n", getpid());
-    // do some init here
-    return NGX_OK;
+	int result;
+
+	fprintf(stderr, "ngx_http_fastdfs_process_init pid=%d\n", getpid());
+	// do some init here
+	if ((result=fdfs_mod_init()) != 0)
+	{
+		return NGX_ERROR;
+	}
+
+	return NGX_OK;
 }
 
 static void ngx_http_fastdfs_process_exit(ngx_cycle_t *cycle)
