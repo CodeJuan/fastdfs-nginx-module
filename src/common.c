@@ -38,7 +38,6 @@ static int storage_server_port = FDFS_STORAGE_SERVER_DEF_PORT;
 static int group_name_len = 0;
 static bool url_have_group_name = false;
 static bool use_storage_id = false;
-static bool module_inited = false;
 static char group_name[FDFS_GROUP_NAME_MAX_LEN + 1] = {0};
 static char response_mode = FDFS_MOD_REPONSE_MODE_PROXY;
 static FDFSHTTPParams g_http_params;
@@ -59,14 +58,6 @@ int fdfs_mod_init()
 	char *pIfAliasPrefix;
 	char buff[2 * 1024];
 	bool load_fdfs_parameters_from_tracker = false;
-
-	if (module_inited)
-	{
-		logWarning("file: "__FILE__", line: %d, " \
-			"module already inited!", __LINE__);
-		return 0;
-	}
-	module_inited = true;
 
 	log_init();
 	trunk_shared_init();
@@ -597,7 +588,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		char *redirect;
 
-		logInfo("source id: %d", file_info.source_id);
+		//logInfo("source id: %d", file_info.source_id);
 		//logInfo("source ip addr: %s", file_info.source_ip_addr);
 		//logInfo("create_timestamp: %d", file_info.create_timestamp);
 
