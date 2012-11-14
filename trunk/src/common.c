@@ -62,10 +62,8 @@ int fdfs_mod_init()
 
 	if (module_inited)
 	{
-		/*
-		logDebug("file: "__FILE__", line: %d, " \
+		logWarning("file: "__FILE__", line: %d, " \
 			"module already inited!", __LINE__);
-		*/
 		return 0;
 	}
 	module_inited = true;
