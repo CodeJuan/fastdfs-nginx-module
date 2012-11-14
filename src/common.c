@@ -27,6 +27,7 @@
 #include "fdfs_http_shared.h"
 #include "fdfs_client.h"
 #include "local_ip_func.h"
+#include "fdfs_shared_func.h"
 #include "trunk_shared.h"
 #include "common.h"
 
@@ -36,6 +37,8 @@
 static int storage_server_port = FDFS_STORAGE_SERVER_DEF_PORT;
 static int group_name_len = 0;
 static bool url_have_group_name = false;
+static bool use_storage_id = false;
+static bool module_inited = false;
 static char group_name[FDFS_GROUP_NAME_MAX_LEN + 1] = {0};
 static char response_mode = FDFS_MOD_REPONSE_MODE_PROXY;
 static FDFSHTTPParams g_http_params;
@@ -56,6 +59,16 @@ int fdfs_mod_init()
 	char *pIfAliasPrefix;
 	char buff[2 * 1024];
 	bool load_fdfs_parameters_from_tracker = false;
+
+	if (module_inited)
+	{
+		/*
+		logDebug("file: "__FILE__", line: %d, " \
+			"module already inited!", __LINE__);
+		*/
+		return 0;
+	}
+	module_inited = true;
 
 	log_init();
 	trunk_shared_init();
@@ -157,16 +170,19 @@ int fdfs_mod_init()
 	{
 		result = fdfs_load_tracker_group_ex(&g_tracker_group, \
 				FDFS_MOD_CONF_FILENAME, &iniContext);
-		if (result != 0)
-		{
-			break;
-		}
 	}
 	else
 	{
 		storage_sync_file_max_delay = iniGetIntValue(NULL, \
 				"storage_sync_file_max_delay", \
                 	        &iniContext, 24 * 3600);
+		use_storage_id = iniGetBoolValue(NULL, "use_storage_id", \
+				&iniContext, false);
+		if (use_storage_id)
+		{
+			result = fdfs_load_storage_ids_from_file( \
+					FDFS_MOD_CONF_FILENAME, &iniContext);
+		}
 	}
 
 	} while (false);
@@ -190,7 +206,7 @@ int fdfs_mod_init()
 		len += snprintf(buff + len, sizeof(buff) - len, \
 				"store_path%d=%s, ", i, g_fdfs_store_paths[i]);
 	}
-	logInfo("fastdfs apache / nginx module v1.12, " \
+	logInfo("fastdfs apache / nginx module v1.13, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
 		"path_count=%d, %s" \
@@ -209,7 +225,8 @@ int fdfs_mod_init()
 		"token_check_fail content_type=%s, " \
 		"token_check_fail buff length=%d, "  \
 		"load_fdfs_parameters_from_tracker=%d, " \
-		"storage_sync_file_max_delay=%ds", \
+		"storage_sync_file_max_delay=%ds, " \
+		"use_storage_id=%d, storage server id count: %d", \
 		response_mode == FDFS_MOD_REPONSE_MODE_PROXY ? \
 			"proxy" : "redirect", \
 		g_fdfs_base_path, g_fdfs_path_count, buff, \
@@ -225,7 +242,8 @@ int fdfs_mod_init()
 		g_http_params.token_check_fail_content_type, \
 		g_http_params.token_check_fail_buff.length, \
 		load_fdfs_parameters_from_tracker, \
-		storage_sync_file_max_delay);
+		storage_sync_file_max_delay, use_storage_id, \
+		g_storage_id_count);
 
 	//print_local_host_ip_addrs();
 
@@ -581,6 +599,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		char *redirect;
 
+		logInfo("source id: %d", file_info.source_id);
 		//logInfo("source ip addr: %s", file_info.source_ip_addr);
 		//logInfo("create_timestamp: %d", file_info.create_timestamp);
 
@@ -944,9 +963,17 @@ static int fdfs_get_params_from_tracker()
                         "storage_sync_file_max_delay", \
                         &iniContext, 24 * 3600);
 
+	use_storage_id = iniGetBoolValue(NULL, "use_storage_id", \
+				&iniContext, false);
         iniFreeContext(&iniContext);
 
-        return 0;
+	if (use_storage_id)
+	{
+		result = fdfs_get_storage_ids_from_tracker_group( \
+				&g_tracker_group);
+	}
+
+        return result;
 }
 
 static int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size)
