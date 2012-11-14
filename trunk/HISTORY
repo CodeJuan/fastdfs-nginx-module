@@ -1,4 +1,8 @@
 
+Version 1.13  2012-11-14
+ * support filename include storage server ID
+   must upgrade your FastDFS server to v4.03 or higher version
+
 Version 1.12  2012-10-20
  * log detail error info when stat file fail
  * mod_fastdfs.conf add parameter: load_fdfs_parameters_from_tracker, 
