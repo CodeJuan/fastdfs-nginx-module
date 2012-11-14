@@ -651,6 +651,18 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			return HTTP_BADREQUEST;
 		}
 
+		if (*(file_info.source_ip_addr) == '\0')
+		{
+			logWarning("file: "__FILE__", line: %d, " \
+				"can't get ip address of source storage " \
+				"id: %d, url: %s", __LINE__, \
+				file_info.source_id, url);
+
+			OUTPUT_HEADERS(pContext, (&response), \
+				HTTP_INTERNAL_SERVER_ERROR)
+			return HTTP_INTERNAL_SERVER_ERROR;
+		}
+
 		if (response_mode == FDFS_MOD_REPONSE_MODE_REDIRECT)
 		{
 			char *path_split_str;
