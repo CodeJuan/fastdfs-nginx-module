@@ -2,6 +2,8 @@
 Version 1.13  2012-11-14
  * support filename include storage server ID
    must upgrade your FastDFS server to v4.03 or higher version
+ * call function fdfs_mod_init change from ngx_http_fastdfs_set to 
+   ngx_http_fastdfs_process_init
 
 Version 1.12  2012-10-20
  * log detail error info when stat file fail
