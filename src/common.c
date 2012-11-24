@@ -195,7 +195,7 @@ int fdfs_mod_init()
 		len += snprintf(buff + len, sizeof(buff) - len, \
 				"store_path%d=%s, ", i, g_fdfs_store_paths[i]);
 	}
-	logInfo("fastdfs apache / nginx module v1.13, " \
+	logInfo("fastdfs apache / nginx module v1.14, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
 		"path_count=%d, %s" \
@@ -378,7 +378,6 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	bool bSameGroup;  //if in my group
 	bool bTrunkFile;
 	FDFSTrunkFullInfo trunkInfo;
-        FDFSTrunkHeader trunkHeader;
 
 	memset(&response, 0, sizeof(response));
 	response.status = HTTP_OK;
@@ -523,14 +522,25 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	filename_len = strlen(filename);
 
 	//logInfo("filename=%s", filename);
-
-	if (storage_split_filename_ex(filename, \
-		&filename_len, true_filename, &store_path_index) != 0)
+	if (bSameGroup)
 	{
-		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
-		return HTTP_BADREQUEST;
+		if (storage_split_filename_ex(filename, \
+			&filename_len, true_filename, &store_path_index) != 0)
+		{
+			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
+			return HTTP_BADREQUEST;
+		}
 	}
-	
+	else
+	{
+		if (storage_split_filename_no_check(filename, \
+			&filename_len, true_filename, &store_path_index) != 0)
+		{
+			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
+			return HTTP_BADREQUEST;
+		}
+	}
+
 	if (fdfs_check_data_filename(true_filename, filename_len) != 0)
 	{
 		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
@@ -572,14 +582,24 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	fd = -1;
 	memset(&file_stat, 0, sizeof(file_stat));
-	if ((result=trunk_file_stat_ex(store_path_index, true_filename, \
-		filename_len, &file_stat, &trunkInfo, &trunkHeader, &fd)) != 0)
+	if (bSameGroup)
 	{
-		bFileExists = false;
+        	FDFSTrunkHeader trunkHeader;
+		if ((result=trunk_file_stat_ex(store_path_index, \
+			true_filename, filename_len, &file_stat, \
+			&trunkInfo, &trunkHeader, &fd)) != 0)
+		{
+			bFileExists = false;
+		}
+		else
+		{
+			bFileExists = true;
+		}
 	}
 	else
 	{
-		bFileExists = true;
+		bFileExists = false;
+		memset(&trunkInfo, 0, sizeof(trunkInfo));
 	}
 
 	response.attachment_filename = fdfs_http_get_parameter("filename", \

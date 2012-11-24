@@ -609,13 +609,15 @@ static ngx_int_t ngx_http_fastdfs_proxy_process_status_line(ngx_http_request_t *
 
 static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r)
 {
-    ngx_int_t        rc;
-    ngx_table_elt_t  *h;
+    ngx_int_t                       rc;
+    ngx_table_elt_t                *h;
+    ngx_http_upstream_header_t     *hh;
+    ngx_http_upstream_main_conf_t  *umcf;
+
+    umcf = ngx_http_get_module_main_conf(r, ngx_http_upstream_module);
 
     for ( ;; ) {
-
         rc = ngx_http_parse_header_line(r, &r->upstream->buffer, 1);
-
         if (rc == NGX_OK) {
 
             /* a header line has been parsed successfully */
@@ -639,15 +641,28 @@ static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r)
             h->value.data = h->key.data + h->key.len + 1;
             h->lowcase_key = h->key.data + h->key.len + 1 + h->value.len + 1;
 
-            ngx_cpystrn(h->key.data, r->header_name_start, h->key.len + 1);
-            ngx_cpystrn(h->value.data, r->header_start, h->value.len + 1);
+            ngx_memcpy(h->key.data, r->header_name_start, h->key.len);
+            h->key.data[h->key.len] = '\0';
+            ngx_memcpy(h->value.data, r->header_start, h->value.len);
+            h->value.data[h->value.len] = '\0';
 
             if (h->key.len == r->lowcase_index) {
                 ngx_memcpy(h->lowcase_key, r->lowcase_header, h->key.len);
-
             } else {
                 ngx_strlow(h->lowcase_key, h->key.data, h->key.len);
             }
+
+            hh = ngx_hash_find(&umcf->headers_in_hash, h->hash,
+                               h->lowcase_key, h->key.len);
+            if (hh && hh->handler(r, h, hh->offset) != NGX_OK) {
+                return NGX_ERROR;
+            }
+
+            /*
+            ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                           "http proxy header: \"%V: %V\"",
+                           &h->key, &h->value);
+            */
 
             continue;
         }
@@ -655,7 +670,10 @@ static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r)
         if (rc == NGX_HTTP_PARSE_HEADER_DONE) {
 
             /* a whole header has been parsed successfully */
-
+            /*
+            ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                           "http proxy header done");
+            */
             /*
              * if no "Server" and "Date" in header line,
              * then add the special empty headers
@@ -688,6 +706,13 @@ static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r)
                 h->lowcase_key = (u_char *) "date";
             }
 
+            /* clear content length if response is chunked */
+	    /*
+            if (r->upstream->headers_in.chunked) {
+                r->upstream->headers_in.content_length_n = -1;
+            }
+	    */
+
             return NGX_OK;
         }
 
@@ -696,7 +721,6 @@ static ngx_int_t ngx_http_fastdfs_proxy_process_header(ngx_http_request_t *r)
         }
 
         /* there was error while a header line parsing */
-
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                       "upstream sent invalid header");
 
