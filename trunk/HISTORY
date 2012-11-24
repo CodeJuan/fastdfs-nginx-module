@@ -1,4 +1,9 @@
 
+Version 1.14  2012-11-24
+ * bug fixed: do not check store path index when not same group
+   you must upgrade your FastDFS server to v4.04 or higher version
+ * proxy handler deal headers more gracefully
+
 Version 1.13  2012-11-14
  * support filename include storage server ID
    must upgrade your FastDFS server to v4.03 or higher version
