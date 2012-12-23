@@ -34,17 +34,82 @@
 #define FDFS_MOD_REPONSE_MODE_PROXY	'P'
 #define FDFS_MOD_REPONSE_MODE_REDIRECT	'R'
 
+typedef struct tagGroupStorePaths {
+	char group_name[FDFS_GROUP_NAME_MAX_LEN + 1];
+	int path_count;
+	char **store_paths;
+} GroupStorePaths;
+
 static int storage_server_port = FDFS_STORAGE_SERVER_DEF_PORT;
 static int group_name_len = 0;
+static int group_count = 0;
 static bool url_have_group_name = false;
 static bool use_storage_id = false;
 static char group_name[FDFS_GROUP_NAME_MAX_LEN + 1] = {0};
+static GroupStorePaths *group_store_paths = NULL;
 static char response_mode = FDFS_MOD_REPONSE_MODE_PROXY;
 static FDFSHTTPParams g_http_params;
 static int storage_sync_file_max_delay = 24 * 3600;
 
 static int fdfs_get_params_from_tracker();
 static int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size);
+
+static int fdfs_load_groups_store_paths(IniContext *pItemContext)
+{
+	char section_name[64];
+	char *pGroupName;
+	int bytes;
+	int group_name_len;
+	int result;
+	int i;
+
+	bytes = sizeof(GroupStorePaths) * group_count;
+	group_store_paths = (GroupStorePaths *)malloc(bytes);
+	if (group_store_paths == NULL)
+	{
+		logError("file: "__FILE__", line: %d, " \
+			"malloc %d bytes fail, " \
+			"errno: %d, error info: %s", \
+			__LINE__, bytes, errno, STRERROR(errno));
+		return errno != 0 ? errno : ENOMEM;
+	}
+
+	for (i=0; i<group_count; i++)
+	{
+		sprintf(section_name, "group%d", i + 1);
+		pGroupName = iniGetStrValue(section_name, "group_name", \
+				pItemContext);
+		if (pGroupName == NULL)
+		{
+			logError("file: "__FILE__", line: %d, " \
+				"section: %s, you must set parameter: " \
+				"group_name!", __LINE__, section_name);
+			return ENOENT;
+		}
+
+		group_name_len = snprintf(group_store_paths[i].group_name, \
+			sizeof(group_store_paths[i].group_name), \
+			"%s", pGroupName);
+		if (group_name_len == 0)
+		{
+			logError("file: "__FILE__", line: %d, " \
+				"section: %s, parameter: group_name " \
+				"can't be empty!", __LINE__, section_name);
+			return EINVAL;
+		}
+		
+		group_store_paths[i].store_paths = \
+			storage_load_paths_from_conf_file_ex(pItemContext, \
+			section_name, false, &group_store_paths[i].path_count, \
+			&result);
+		if (result != 0)
+		{
+			return result;
+		}
+	}
+
+	return 0;
+}
 
 int fdfs_mod_init()
 {
@@ -54,7 +119,6 @@ int fdfs_mod_init()
 	int i;
 	char *pLogFilename;
 	char *pReponseMode;
-	char *pGroupName;
 	char *pIfAliasPrefix;
 	char buff[2 * 1024];
 	bool load_fdfs_parameters_from_tracker = false;
@@ -72,9 +136,65 @@ int fdfs_mod_init()
 
 	do
 	{
-	if ((result=storage_load_paths_from_conf_file(&iniContext)) != 0)
+	group_count = iniGetIntValue(NULL, "group_count", &iniContext, 0);
+	if (group_count < 0)
 	{
-		break;
+		logError("file: "__FILE__", line: %d, " \
+			"conf file: %s, group_count: %d is invalid!", \
+			__LINE__, FDFS_MOD_CONF_FILENAME, group_count);
+		return EINVAL;
+	}
+
+	url_have_group_name = iniGetBoolValue(NULL, "url_have_group_name", \
+						&iniContext, false);
+	if (group_count > 0)
+	{
+		if (!url_have_group_name)
+		{
+			logError("file: "__FILE__", line: %d, "   \
+				"config file: %s, you must set "  \
+				"url_have_group_name to true to " \
+				"support multi-group!", \
+				__LINE__, FDFS_MOD_CONF_FILENAME);
+			result = ENOENT;
+			break;
+		}
+
+		if ((result=fdfs_load_groups_store_paths(&iniContext)) != 0)
+		{
+			break;
+		}
+	}
+	else
+	{
+		char *pGroupName;
+
+		pGroupName = iniGetStrValue(NULL, "group_name", &iniContext);
+		if (pGroupName == NULL)
+		{
+			logError("file: "__FILE__", line: %d, " \
+				"config file: %s, you must set parameter: " \
+				"group_name!", __LINE__, FDFS_MOD_CONF_FILENAME);
+			result = ENOENT;
+			break;
+		}
+
+		group_name_len = snprintf(group_name, sizeof(group_name), \
+					"%s", pGroupName);
+		if (group_name_len == 0)
+		{
+			logError("file: "__FILE__", line: %d, " \
+				"config file: %s, parameter: group_name " \
+				"can't be empty!", __LINE__, \
+				FDFS_MOD_CONF_FILENAME);
+			result = EINVAL;
+			break;
+		}
+
+		if ((result=storage_load_paths_from_conf_file(&iniContext)) != 0)
+		{
+			break;
+		}
 	}
 
 	g_fdfs_connect_timeout = iniGetIntValue(NULL, "connect_timeout", \
@@ -104,27 +224,6 @@ int fdfs_mod_init()
 
 	storage_server_port = iniGetIntValue(NULL, "storage_server_port", \
 			&iniContext, FDFS_STORAGE_SERVER_DEF_PORT);
-
-	url_have_group_name = iniGetBoolValue(NULL, "url_have_group_name", \
-						&iniContext, false);
-	pGroupName = iniGetStrValue(NULL, "group_name", &iniContext);
-	if (pGroupName == NULL)
-	{
-		logError("file: "__FILE__", line: %d, " \
-			"you must set parameter: group_name!", __LINE__);
-		result = ENOENT;
-		break;
-	}
-
-	group_name_len = snprintf(group_name, sizeof(group_name), \
-				"%s", pGroupName);
-	if (group_name_len == 0)
-	{
-		logError("file: "__FILE__", line: %d, " \
-			"parameter: group_name can't be empty!", __LINE__);
-		result = EINVAL;
-		break;
-	}
 
 	if ((result=fdfs_http_params_load(&iniContext, FDFS_MOD_CONF_FILENAME, \
 		&g_http_params)) != 0)
@@ -188,22 +287,29 @@ int fdfs_mod_init()
 		fdfs_get_params_from_tracker();
 	}
 
-	len = 0;
-	*buff = '\0';
-	for (i=0; i<g_fdfs_path_count; i++)
+	if (group_count > 0)
 	{
-		len += snprintf(buff + len, sizeof(buff) - len, \
-				"store_path%d=%s, ", i, g_fdfs_store_paths[i]);
+		len = sprintf(buff, "group_count=%d, ", group_count);
 	}
+	else
+	{
+		len = sprintf(buff, "group_name=%s, path_count=%d, ", \
+			group_name, g_fdfs_path_count);
+		for (i=0; i<g_fdfs_path_count; i++)
+		{
+			len += snprintf(buff + len, sizeof(buff) - len, \
+				"store_path%d=%s, ", i, g_fdfs_store_paths[i]);
+		}
+	}
+
 	logInfo("fastdfs apache / nginx module v1.14, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
-		"path_count=%d, %s" \
+		"%s" \
 		"connect_timeout=%d, "\
 		"network_timeout=%d, "\
 		"tracker_server_count=%d, " \
 		"storage_server_port=%d, " \
-		"group_name=%s, " \
 		"if_alias_prefix=%s, " \
 		"local_host_ip_count=%d, " \
 		"need_find_content_type=%d, " \
@@ -218,10 +324,10 @@ int fdfs_mod_init()
 		"use_storage_id=%d, storage server id count: %d", \
 		response_mode == FDFS_MOD_REPONSE_MODE_PROXY ? \
 			"proxy" : "redirect", \
-		g_fdfs_base_path, g_fdfs_path_count, buff, \
+		g_fdfs_base_path, buff, \
 		g_fdfs_connect_timeout, g_fdfs_network_timeout, \
 		g_tracker_group.server_count, \
-		storage_server_port, group_name, \
+		storage_server_port, 
 		g_if_alias_prefix, g_local_host_ip_count, \
 		g_http_params.need_find_content_type, \
 		g_http_params.default_content_type, \
@@ -234,6 +340,25 @@ int fdfs_mod_init()
 		storage_sync_file_max_delay, use_storage_id, \
 		g_storage_id_count);
 
+	if (group_count > 0)
+	{
+		int k;
+		for (k=0; k<group_count; k++)
+		{
+			len = 0;
+			*buff = '\0';
+			for (i=0; i<group_store_paths[k].path_count; i++)
+			{
+				len += snprintf(buff + len, sizeof(buff) - len, \
+					", store_path%d=%s", i, \
+					group_store_paths[k].store_paths[i]);
+			}
+
+			logInfo("group %d. group_name=%s, path_count=%d%s", \
+				k + 1, group_store_paths[k].group_name, \
+				group_store_paths[k].path_count, buff);
+		}
+	}
 	//print_local_host_ip_addrs();
 
 	return 0;
@@ -826,7 +951,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	if (!bFileExists)
 	{
-		TrackerServerInfo storage_server;
+		ConnectionInfo storage_server;
 		struct fdfs_download_callback_args callback_args;
 		int64_t file_size;
 
