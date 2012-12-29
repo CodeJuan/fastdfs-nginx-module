@@ -468,6 +468,31 @@ static int fdfs_check_and_format_range(struct fdfs_http_range *range,
 	return 0;
 }
 
+#define FDFS_SET_LAST_MODIFIED(response, pContext, mtime) \
+	do { \
+		response.last_modified = mtime; \
+		fdfs_format_http_datetime(response.last_modified, \
+			response.last_modified_buff, \
+			sizeof(response.last_modified_buff)); \
+		if (*pContext->if_modified_since != '\0') \
+		{ \
+			if (strcmp(response.last_modified_buff, \
+				pContext->if_modified_since) == 0) \
+			{ \
+			OUTPUT_HEADERS(pContext, (&response), HTTP_NOTMODIFIED)\
+			return HTTP_NOTMODIFIED; \
+			} \
+		} \
+		\
+		/*\
+		logInfo("last_modified: %s, if_modified_since: %s, strcmp=%d", \
+			response.last_modified_buff, \
+			pContext->if_modified_since, \
+			strcmp(response.last_modified_buff, \
+			pContext->if_modified_since)); \
+		*/ \
+	} while (0)
+
 int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 {
 #define HTTPD_MAX_PARAMS   32
@@ -686,24 +711,12 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		OUTPUT_HEADERS(pContext, (&response), http_status)
 		return http_status;
 	}
-
-	response.last_modified = file_info.create_timestamp;
-	fdfs_format_http_datetime(response.last_modified, \
-		response.last_modified_buff, \
-		sizeof(response.last_modified_buff));
-	if (*pContext->if_modified_since != '\0' && \
-		strcmp(response.last_modified_buff, \
-			pContext->if_modified_since) == 0)
+	
+	if (file_info.file_size >= 0)  //mormal file
 	{
-		OUTPUT_HEADERS(pContext, (&response), HTTP_NOTMODIFIED)
-		return HTTP_NOTMODIFIED;
+		FDFS_SET_LAST_MODIFIED(response, pContext, \
+				file_info.create_timestamp);
 	}
-
-	/*
-	logError("last_modified: %s, if_modified_since: %s, strcmp=%d", \
-		response.last_modified_buff, pContext->if_modified_since, \
-		strcmp(response.last_modified_buff, pContext->if_modified_since));
-	*/
 
 	fd = -1;
 	memset(&file_stat, 0, sizeof(file_stat));
@@ -729,7 +742,15 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	response.attachment_filename = fdfs_http_get_parameter("filename", \
 						params, param_count);
-	if (!bFileExists)
+	if (bFileExists)
+	{
+		if (file_info.file_size < 0)  //slave or appender file
+		{
+			FDFS_SET_LAST_MODIFIED(response, pContext, \
+					file_stat.st_mtime);
+		}
+	}
+	else
 	{
 		char *redirect;
 
