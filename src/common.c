@@ -36,18 +36,18 @@
 
 typedef struct tagGroupStorePaths {
 	char group_name[FDFS_GROUP_NAME_MAX_LEN + 1];
-	int path_count;
-	char **store_paths;
+	int group_name_len;
+	FDFSStorePaths store_paths;
 } GroupStorePaths;
 
 static int storage_server_port = FDFS_STORAGE_SERVER_DEF_PORT;
-static int group_name_len = 0;
-static int group_count = 0;
+static int my_group_name_len = 0;
+static int group_count = 0;  //for multi groups
 static bool url_have_group_name = false;
 static bool use_storage_id = false;
-static char group_name[FDFS_GROUP_NAME_MAX_LEN + 1] = {0};
-static GroupStorePaths *group_store_paths = NULL;
+static char my_group_name[FDFS_GROUP_NAME_MAX_LEN + 1] = {0};
 static char response_mode = FDFS_MOD_REPONSE_MODE_PROXY;
+static GroupStorePaths *group_store_paths = NULL;   //for multi groups
 static FDFSHTTPParams g_http_params;
 static int storage_sync_file_max_delay = 24 * 3600;
 
@@ -59,7 +59,6 @@ static int fdfs_load_groups_store_paths(IniContext *pItemContext)
 	char section_name[64];
 	char *pGroupName;
 	int bytes;
-	int group_name_len;
 	int result;
 	int i;
 
@@ -87,10 +86,11 @@ static int fdfs_load_groups_store_paths(IniContext *pItemContext)
 			return ENOENT;
 		}
 
-		group_name_len = snprintf(group_store_paths[i].group_name, \
+		group_store_paths[i].group_name_len = snprintf( \
+			group_store_paths[i].group_name, \
 			sizeof(group_store_paths[i].group_name), \
 			"%s", pGroupName);
-		if (group_name_len == 0)
+		if (group_store_paths[i].group_name_len == 0)
 		{
 			logError("file: "__FILE__", line: %d, " \
 				"section: %s, parameter: group_name " \
@@ -98,9 +98,9 @@ static int fdfs_load_groups_store_paths(IniContext *pItemContext)
 			return EINVAL;
 		}
 		
-		group_store_paths[i].store_paths = \
+		group_store_paths[i].store_paths.paths = \
 			storage_load_paths_from_conf_file_ex(pItemContext, \
-			section_name, false, &group_store_paths[i].path_count, \
+			section_name, false, &group_store_paths[i].store_paths.count, \
 			&result);
 		if (result != 0)
 		{
@@ -179,9 +179,9 @@ int fdfs_mod_init()
 			break;
 		}
 
-		group_name_len = snprintf(group_name, sizeof(group_name), \
-					"%s", pGroupName);
-		if (group_name_len == 0)
+		my_group_name_len = snprintf(my_group_name, \
+				sizeof(my_group_name), "%s", pGroupName);
+		if (my_group_name_len == 0)
 		{
 			logError("file: "__FILE__", line: %d, " \
 				"config file: %s, parameter: group_name " \
@@ -294,17 +294,19 @@ int fdfs_mod_init()
 	else
 	{
 		len = sprintf(buff, "group_name=%s, path_count=%d, ", \
-			group_name, g_fdfs_path_count);
-		for (i=0; i<g_fdfs_path_count; i++)
+			my_group_name, g_fdfs_store_paths.count);
+		for (i=0; i<g_fdfs_store_paths.count; i++)
 		{
 			len += snprintf(buff + len, sizeof(buff) - len, \
-				"store_path%d=%s, ", i, g_fdfs_store_paths[i]);
+				"store_path%d=%s, ", i, \
+				g_fdfs_store_paths.paths[i]);
 		}
 	}
 
 	logInfo("fastdfs apache / nginx module v1.14, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
+		"url_have_group_name=%d, " \
 		"%s" \
 		"connect_timeout=%d, "\
 		"network_timeout=%d, "\
@@ -324,7 +326,7 @@ int fdfs_mod_init()
 		"use_storage_id=%d, storage server id count: %d", \
 		response_mode == FDFS_MOD_REPONSE_MODE_PROXY ? \
 			"proxy" : "redirect", \
-		g_fdfs_base_path, buff, \
+		g_fdfs_base_path, url_have_group_name, buff, \
 		g_fdfs_connect_timeout, g_fdfs_network_timeout, \
 		g_tracker_group.server_count, \
 		storage_server_port, 
@@ -347,16 +349,16 @@ int fdfs_mod_init()
 		{
 			len = 0;
 			*buff = '\0';
-			for (i=0; i<group_store_paths[k].path_count; i++)
+			for (i=0; i<group_store_paths[k].store_paths.count; i++)
 			{
 				len += snprintf(buff + len, sizeof(buff) - len, \
 					", store_path%d=%s", i, \
-					group_store_paths[k].store_paths[i]);
+					group_store_paths[k].store_paths.paths[i]);
 			}
 
 			logInfo("group %d. group_name=%s, path_count=%d%s", \
 				k + 1, group_store_paths[k].group_name, \
-				group_store_paths[k].path_count, buff);
+				group_store_paths[k].store_paths.count, buff);
 		}
 	}
 	//print_local_host_ip_addrs();
@@ -506,6 +508,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	int param_count;
 	char *p;
 	char *filename;
+	FDFSStorePaths *pStorePaths;
 	char true_filename[128];
 	char full_filename[MAX_PATH_SIZE + 64];
 	char content_type[64];
@@ -586,6 +589,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	param_count = http_parse_query(uri, params, HTTPD_MAX_PARAMS);
 	if (url_have_group_name)
 	{
+		int group_name_len;
+
 		snprintf(file_id, sizeof(file_id), "%s", uri + 1);
 		file_id_without_group = strchr(file_id, '/');
 		if (file_id_without_group == NULL)
@@ -596,17 +601,42 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			return HTTP_BADREQUEST;
 		}
 
-		bSameGroup = (file_id_without_group - file_id == \
-				group_name_len) && (memcmp(file_id, group_name,\
+		pStorePaths = &g_fdfs_store_paths;
+		group_name_len = file_id_without_group - file_id;
+		if (group_count == 0)
+		{
+			bSameGroup = (group_name_len == my_group_name_len) && \
+					(memcmp(file_id, my_group_name, \
 						group_name_len) == 0);
+		}
+		else
+		{
+			int i;
+
+			bSameGroup = false;
+			for (i=0; i<group_count; i++)
+			{
+			if (group_store_paths[i].group_name_len == \
+				group_name_len && memcmp(file_id, \
+					group_store_paths[i].group_name, \
+					group_name_len) == 0)
+			{
+				bSameGroup = true;
+				pStorePaths = &group_store_paths[i].store_paths;
+				break;
+			}
+			}
+		}
+
 		file_id_without_group++;  //skip /
 	}
 	else
 	{
+		pStorePaths = &g_fdfs_store_paths;
 		bSameGroup = true;
 		file_id_without_group = uri + 1; //skip /
 		snprintf(file_id, sizeof(file_id), "%s/%s", \
-			group_name, file_id_without_group);
+			my_group_name, file_id_without_group);
 	}
 
 	if (strlen(file_id_without_group) < 22)
@@ -672,20 +702,23 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	filename_len = strlen(filename);
 
 	//logInfo("filename=%s", filename);
+	if (storage_split_filename_no_check(filename, \
+		&filename_len, true_filename, &store_path_index) != 0)
+	{
+		OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
+		return HTTP_BADREQUEST;
+	}
 	if (bSameGroup)
 	{
-		if (storage_split_filename_ex(filename, \
-			&filename_len, true_filename, &store_path_index) != 0)
+		if (store_path_index < 0 || \
+			store_path_index >= pStorePaths->count)
 		{
-			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
-			return HTTP_BADREQUEST;
-		}
-	}
-	else
-	{
-		if (storage_split_filename_no_check(filename, \
-			&filename_len, true_filename, &store_path_index) != 0)
-		{
+			logError("file: "__FILE__", line: %d, " \
+				"filename: %s is invalid, " \
+				"invalid store path index: %d, " \
+				"which < 0 or >= %d", __LINE__, filename, \
+				store_path_index, pStorePaths->count);
+
 			OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
 			return HTTP_BADREQUEST;
 		}
@@ -723,7 +756,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	if (bSameGroup)
 	{
         	FDFSTrunkHeader trunkHeader;
-		if ((result=trunk_file_stat_ex(store_path_index, \
+		if ((result=trunk_file_stat_ex1(pStorePaths, store_path_index, \
 			true_filename, filename_len, &file_stat, \
 			&trunkInfo, &trunkHeader, &fd)) != 0)
 		{
@@ -783,7 +816,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 			{
 				snprintf(full_filename, \
 					sizeof(full_filename), "%s/data/%s", \
-					g_fdfs_store_paths[store_path_index], \
+					pStorePaths->paths[store_path_index], \
 					true_filename);
 				if (result == ENOENT)
 				{
@@ -1013,8 +1046,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	bTrunkFile = IS_TRUNK_FILE_BY_ID(trunkInfo);
 	if (bTrunkFile)
 	{
-		trunk_get_full_filename(&trunkInfo, full_filename, \
-				sizeof(full_filename));
+		trunk_get_full_filename_ex(pStorePaths, &trunkInfo, \
+				full_filename, sizeof(full_filename));
 		full_filename_len = strlen(full_filename);
 		file_offset = TRUNK_FILE_START_OFFSET(trunkInfo) + \
 				pContext->range.start;
@@ -1023,7 +1056,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	{
 		full_filename_len = snprintf(full_filename, \
 				sizeof(full_filename), "%s/data/%s", \
-				g_fdfs_store_paths[store_path_index], \
+				pStorePaths->paths[store_path_index], \
 				true_filename);
 		file_offset = pContext->range.start;
 	}
