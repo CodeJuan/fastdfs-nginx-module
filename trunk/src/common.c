@@ -37,6 +37,7 @@
 typedef struct tagGroupStorePaths {
 	char group_name[FDFS_GROUP_NAME_MAX_LEN + 1];
 	int group_name_len;
+	int storage_server_port;
 	FDFSStorePaths store_paths;
 } GroupStorePaths;
 
@@ -85,6 +86,10 @@ static int fdfs_load_groups_store_paths(IniContext *pItemContext)
 				"group_name!", __LINE__, section_name);
 			return ENOENT;
 		}
+
+		group_store_paths[i].storage_server_port = iniGetIntValue( \
+			section_name, "storage_server_port", pItemContext, \
+			FDFS_STORAGE_SERVER_DEF_PORT);
 
 		group_store_paths[i].group_name_len = snprintf( \
 			group_store_paths[i].group_name, \
@@ -293,8 +298,9 @@ int fdfs_mod_init()
 	}
 	else
 	{
-		len = sprintf(buff, "group_name=%s, path_count=%d, ", \
-			my_group_name, g_fdfs_store_paths.count);
+		len = sprintf(buff, "group_name=%s, storage_server_port=%d, " \
+			"path_count=%d, ", my_group_name, \
+			storage_server_port, g_fdfs_store_paths.count);
 		for (i=0; i<g_fdfs_store_paths.count; i++)
 		{
 			len += snprintf(buff + len, sizeof(buff) - len, \
@@ -303,7 +309,7 @@ int fdfs_mod_init()
 		}
 	}
 
-	logInfo("fastdfs apache / nginx module v1.14, " \
+	logInfo("fastdfs apache / nginx module v1.15, " \
 		"response_mode=%s, " \
 		"base_path=%s, " \
 		"url_have_group_name=%d, " \
@@ -311,7 +317,6 @@ int fdfs_mod_init()
 		"connect_timeout=%d, "\
 		"network_timeout=%d, "\
 		"tracker_server_count=%d, " \
-		"storage_server_port=%d, " \
 		"if_alias_prefix=%s, " \
 		"local_host_ip_count=%d, " \
 		"need_find_content_type=%d, " \
@@ -329,7 +334,6 @@ int fdfs_mod_init()
 		g_fdfs_base_path, url_have_group_name, buff, \
 		g_fdfs_connect_timeout, g_fdfs_network_timeout, \
 		g_tracker_group.server_count, \
-		storage_server_port, 
 		g_if_alias_prefix, g_local_host_ip_count, \
 		g_http_params.need_find_content_type, \
 		g_http_params.default_content_type, \
@@ -356,9 +360,11 @@ int fdfs_mod_init()
 					group_store_paths[k].store_paths.paths[i]);
 			}
 
-			logInfo("group %d. group_name=%s, path_count=%d%s", \
+			logInfo("group %d. group_name=%s, " \
+				"storage_server_port=%d, path_count=%d%s", \
 				k + 1, group_store_paths[k].group_name, \
-				group_store_paths[k].store_paths.count, buff);
+				storage_server_port, group_store_paths[k]. \
+				store_paths.count, buff);
 		}
 	}
 	//print_local_host_ip_addrs();
@@ -504,8 +510,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	char uri[256];
 	int url_len;
 	int uri_len;
-	KeyValuePair params[HTTPD_MAX_PARAMS];
 	int param_count;
+	KeyValuePair params[HTTPD_MAX_PARAMS];
 	char *p;
 	char *filename;
 	FDFSStorePaths *pStorePaths;
@@ -525,6 +531,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	int fd;
 	int result;
 	int http_status;
+	int the_storage_port;
 	struct fdfs_http_response response;
 	FDFSFileInfo file_info;
 	bool bFileExists;
@@ -586,6 +593,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		memcpy(uri, url, uri_len+1);
 	}
 
+	the_storage_port = storage_server_port;
 	param_count = http_parse_query(uri, params, HTTPD_MAX_PARAMS);
 	if (url_have_group_name)
 	{
@@ -621,6 +629,8 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 					group_store_paths[i].group_name, \
 					group_name_len) == 0)
 			{
+				the_storage_port = group_store_paths[i]. \
+						storage_server_port;
 				bSameGroup = true;
 				pStorePaths = &group_store_paths[i].store_paths;
 				break;
@@ -1010,7 +1020,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		int64_t file_size;
 
 		strcpy(storage_server.ip_addr, file_info.source_ip_addr);
-		storage_server.port = storage_server_port;
+		storage_server.port = the_storage_port;
 		storage_server.sock = -1;
 
 		callback_args.pContext = pContext;
