@@ -1,4 +1,7 @@
 
+Version 1.15  2013-01-12
+ * add storage server port config with multi groups
+
 Version 1.14  2012-12-29
  * bug fixed: do not check store path index when not same group
    you must upgrade your FastDFS server to v4.05 or higher version
