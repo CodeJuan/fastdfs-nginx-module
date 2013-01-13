@@ -46,6 +46,9 @@ static int my_group_name_len = 0;
 static int group_count = 0;  //for multi groups
 static bool url_have_group_name = false;
 static bool use_storage_id = false;
+static bool flv_support = false;  //if support flv
+static char flv_extension[FDFS_FILE_EXT_NAME_MAX_LEN + 1] = {0};  //flv extension name
+static int  flv_ext_len = 0;  //flv extension length
 static char my_group_name[FDFS_GROUP_NAME_MAX_LEN + 1] = {0};
 static char response_mode = FDFS_MOD_REPONSE_MODE_PROXY;
 static GroupStorePaths *group_store_paths = NULL;   //for multi groups
@@ -54,6 +57,18 @@ static int storage_sync_file_max_delay = 24 * 3600;
 
 static int fdfs_get_params_from_tracker();
 static int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size);
+
+static int fdfs_strtoll(const char *s, int64_t *value)
+{
+	char *end = NULL;
+	*value = strtoll(s, &end, 10);
+	if (end != NULL && *end != '\0')
+	{
+		return EINVAL;
+	}
+
+	return 0;
+}
 
 static int fdfs_load_groups_store_paths(IniContext *pItemContext)
 {
@@ -280,6 +295,24 @@ int fdfs_mod_init()
 
 	} while (false);
 
+	flv_support = iniGetBoolValue(NULL, "flv_support", \
+					&iniContext, false);
+	if (flv_support)
+	{
+		char *flvExtension;
+		flvExtension = iniGetStrValue (NULL, "flv_extension", \
+					&iniContext);
+		if (flvExtension == NULL)
+		{
+			flv_ext_len = sprintf(flv_extension, "flv");
+		}
+		else
+		{
+			flv_ext_len = snprintf(flv_extension, \
+				sizeof(flv_extension), "%s", flvExtension);
+		}
+	}
+
 	iniFreeContext(&iniContext);
 	if (result != 0)
 	{
@@ -328,7 +361,8 @@ int fdfs_mod_init()
 		"token_check_fail buff length=%d, "  \
 		"load_fdfs_parameters_from_tracker=%d, " \
 		"storage_sync_file_max_delay=%ds, " \
-		"use_storage_id=%d, storage server id count: %d", \
+		"use_storage_id=%d, storage server id count=%d, " \
+		"flv_support=%d, flv_extension=%s", \
 		response_mode == FDFS_MOD_REPONSE_MODE_PROXY ? \
 			"proxy" : "redirect", \
 		g_fdfs_base_path, url_have_group_name, buff, \
@@ -344,7 +378,7 @@ int fdfs_mod_init()
 		g_http_params.token_check_fail_buff.length, \
 		load_fdfs_parameters_from_tracker, \
 		storage_sync_file_max_delay, use_storage_id, \
-		g_storage_id_count);
+		g_storage_id_count, flv_support, flv_extension);
 
 	if (group_count > 0)
 	{
@@ -511,9 +545,11 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	int url_len;
 	int uri_len;
 	int param_count;
+	int ext_len;
 	KeyValuePair params[HTTPD_MAX_PARAMS];
 	char *p;
 	char *filename;
+	const char *ext_name;
 	FDFSStorePaths *pStorePaths;
 	char true_filename[128];
 	char full_filename[MAX_PATH_SIZE + 64];
@@ -931,10 +967,12 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		}
 	}
 
+	ext_name = fdfs_http_get_file_extension(true_filename, \
+			filename_len, &ext_len);
 	if (g_http_params.need_find_content_type)
 	{
 	if (fdfs_http_get_content_type_by_extname(&g_http_params, \
-		true_filename, content_type, sizeof(content_type)) != 0)
+		ext_name, ext_len, content_type, sizeof(content_type)) != 0)
 	{
 		if (fd >= 0)
 		{
@@ -998,6 +1036,31 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	else
 	{
 		download_bytes = file_size > 0 ? file_size : 0;
+
+		//flv support
+		if (flv_support && (flv_ext_len == ext_len && \
+			memcmp(ext_name, flv_extension, ext_len) == 0))
+		{
+			char *pStart;
+			pStart = fdfs_http_get_parameter("start", \
+						params, param_count);
+			if (pStart != NULL)
+			{
+				int64_t start;
+				if (fdfs_strtoll(pStart, &start) == 0)
+				{
+				if (start >= 0 && (start < file_size \
+					|| file_size < 0))
+				{
+					pContext->range.start = start;
+					if (file_size > 0)
+					{
+					download_bytes = file_size - start;
+					}
+				}
+				}
+			}
+		}
 	}
 
 	if (pContext->header_only)
@@ -1198,18 +1261,6 @@ static int fdfs_format_http_datetime(time_t t, char *buff, const int buff_size)
 	}
 
 	strftime(buff, buff_size, "%a, %d %b %Y %H:%M:%S GMT", ptm);
-	return 0;
-}
-
-static int fdfs_strtoll(const char *s, int64_t *value)
-{
-	char *end = NULL;
-	*value = strtoll(s, &end, 10);
-	if (end != NULL && *end != '\0')
-	{
-		return EINVAL;
-	}
-
 	return 0;
 }
 
