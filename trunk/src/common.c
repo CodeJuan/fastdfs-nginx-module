@@ -34,6 +34,8 @@
 #define FDFS_MOD_REPONSE_MODE_PROXY	'P'
 #define FDFS_MOD_REPONSE_MODE_REDIRECT	'R'
 
+static char  flv_header[] = "FLV\x1\x1\0\0\0\x9\0\0\0\x9";
+
 typedef struct tagGroupStorePaths {
 	char group_name[FDFS_GROUP_NAME_MAX_LEN + 1];
 	int group_name_len;
@@ -544,6 +546,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	char uri[256];
 	int url_len;
 	int uri_len;
+	int flv_header_len;
 	int param_count;
 	int ext_len;
 	KeyValuePair params[HTTPD_MAX_PARAMS];
@@ -1015,6 +1018,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		file_size = file_info.file_size;
 	}
 
+	flv_header_len = 0;
 	if (pContext->if_range)
 	{
 		if (fdfs_check_and_format_range(&(pContext->range), \
@@ -1049,6 +1053,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				int64_t start;
 				if (fdfs_strtoll(pStart, &start) == 0)
 				{
+				int64_t start = 0;
 				if (start >= 0 && (start < file_size \
 					|| file_size < 0))
 				{
@@ -1057,11 +1062,17 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 					{
 					download_bytes = file_size - start;
 					}
+					if (start > 0)
+					{
+					flv_header_len = sizeof(flv_header) - 1;
+					}
 				}
 				}
 			}
 		}
 	}
+
+	//logInfo("flv_header_len: %d", flv_header_len);
 
 	if (pContext->header_only)
 	{
@@ -1069,7 +1080,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		{
 			close(fd);
 		}
-		response.content_length = download_bytes;
+		response.content_length = download_bytes + flv_header_len;
 		OUTPUT_HEADERS(pContext, (&response), pContext->if_range ? \
 			HTTP_PARTIAL_CONTENT : HTTP_OK )
 
@@ -1134,12 +1145,23 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 		file_offset = pContext->range.start;
 	}
 
-	response.content_length = download_bytes;
+	response.content_length = download_bytes + flv_header_len;
 	if (pContext->send_file != NULL && !bTrunkFile)
 	{
 		http_status = pContext->if_range ? \
 				HTTP_PARTIAL_CONTENT : HTTP_OK;
 		OUTPUT_HEADERS(pContext, (&response), http_status)
+
+		if (flv_header_len > 0)
+		{
+			if (pContext->send_reply_chunk(pContext->arg, \
+				false, flv_header, flv_header_len) != 0)
+			{
+				close(fd);
+				return HTTP_INTERNAL_SERVER_ERROR;
+			}
+		}
+
 		return pContext->send_file(pContext->arg, full_filename, \
 				full_filename_len, file_offset, download_bytes);
 	}
@@ -1189,6 +1211,15 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	OUTPUT_HEADERS(pContext, (&response), pContext->if_range ? \
                         HTTP_PARTIAL_CONTENT : HTTP_OK)
+	if (flv_header_len > 0)
+	{
+		if (pContext->send_reply_chunk(pContext->arg, \
+			false, flv_header, flv_header_len) != 0)
+		{
+			close(fd);
+			return HTTP_INTERNAL_SERVER_ERROR;
+		}
+	}
 
 	remain_bytes = download_bytes;
 	while (remain_bytes > 0)
