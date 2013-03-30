@@ -354,8 +354,6 @@ int fdfs_mod_init()
 		"tracker_server_count=%d, " \
 		"if_alias_prefix=%s, " \
 		"local_host_ip_count=%d, " \
-		"need_find_content_type=%d, " \
-		"default_content_type=%s, " \
 		"anti_steal_token=%d, " \
 		"token_ttl=%ds, " \
 		"anti_steal_secret_key length=%d, "  \
@@ -371,8 +369,6 @@ int fdfs_mod_init()
 		g_fdfs_connect_timeout, g_fdfs_network_timeout, \
 		g_tracker_group.server_count, \
 		g_if_alias_prefix, g_local_host_ip_count, \
-		g_http_params.need_find_content_type, \
-		g_http_params.default_content_type, \
 		g_http_params.anti_steal_token, \
 		g_http_params.token_ttl, \
 		g_http_params.anti_steal_secret_key.length, \
@@ -556,7 +552,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	FDFSStorePaths *pStorePaths;
 	char true_filename[128];
 	char full_filename[MAX_PATH_SIZE + 64];
-	char content_type[64];
+	//char content_type[64];
 	char file_trunk_buff[FDFS_OUTPUT_CHUNK_SIZE];
 	struct stat file_stat;
 	int64_t file_offset;
@@ -972,6 +968,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 
 	ext_name = fdfs_http_get_file_extension(true_filename, \
 			filename_len, &ext_len);
+	/*
 	if (g_http_params.need_find_content_type)
 	{
 	if (fdfs_http_get_content_type_by_extname(&g_http_params, \
@@ -986,6 +983,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 	}
 	response.content_type = content_type;
 	}
+	*/
 
 	if (bFileExists)
 	{
