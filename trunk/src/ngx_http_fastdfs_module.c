@@ -217,6 +217,8 @@ static void fdfs_output_headers(void *arg, struct fdfs_http_response *pResponse)
 		}
 	}
 
+	ngx_http_set_content_type(r);
+
 	r->headers_out.status = pResponse->status;
 	pResponse->header_outputed = true;
 	rc = ngx_http_send_header(r);

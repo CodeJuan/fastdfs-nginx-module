@@ -1,4 +1,7 @@
 
+Version 1.16  2013-03-30
+ * mod_fastdfs.conf remove parameter: http.need_find_content_type
+
 Version 1.15  2013-01-13
  * add storage server port config with multi groups
  * support flv, you must upgrade your FastDFS server to v4.06 
