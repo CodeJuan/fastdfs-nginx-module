@@ -1051,7 +1051,6 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				int64_t start;
 				if (fdfs_strtoll(pStart, &start) == 0)
 				{
-				int64_t start = 0;
 				if (start >= 0 && (start < file_size \
 					|| file_size < 0))
 				{

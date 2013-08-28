@@ -1,6 +1,7 @@
 
-Version 1.16  2013-03-30
+Version 1.16  2013-08-28
  * mod_fastdfs.conf remove parameter: http.need_find_content_type
+ * bug fixed: remove flv duplicate start variable define
 
 Version 1.15  2013-01-13
  * add storage server port config with multi groups
