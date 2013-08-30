@@ -1062,7 +1062,7 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 						int64_t end;
 						if (fdfs_strtoll(pEnd, &end) == 0)
 						{
-							pContext->range.end = end;
+							pContext->range.end = end - 1;
 						}
 					}
 
