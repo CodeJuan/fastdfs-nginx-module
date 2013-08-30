@@ -1051,19 +1051,38 @@ int fdfs_http_request_handler(struct fdfs_http_context *pContext)
 				int64_t start;
 				if (fdfs_strtoll(pStart, &start) == 0)
 				{
-				if (start >= 0 && (start < file_size \
-					|| file_size < 0))
-				{
+					char *pEnd;
+
 					pContext->range.start = start;
-					if (file_size > 0)
+					pContext->range.end = 0;
+					pEnd = fdfs_http_get_parameter("end", \
+						params, param_count);
+					if (pEnd != NULL)
 					{
-					download_bytes = file_size - start;
+						int64_t end;
+						if (fdfs_strtoll(pEnd, &end) == 0)
+						{
+							pContext->range.end = end;
+						}
 					}
+
+					if (fdfs_check_and_format_range(&(pContext->range), \
+						file_size) != 0)
+					{
+						if (fd >= 0)
+						{
+							close(fd);
+						}
+
+						OUTPUT_HEADERS(pContext, (&response), HTTP_BADREQUEST)
+						return HTTP_BADREQUEST;
+					}
+
+					download_bytes = (pContext->range.end - pContext->range.start) + 1;
 					if (start > 0)
 					{
-					flv_header_len = sizeof(flv_header) - 1;
+						flv_header_len = sizeof(flv_header) - 1;
 					}
-				}
 				}
 			}
 		}
