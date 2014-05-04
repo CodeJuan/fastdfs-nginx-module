@@ -401,17 +401,55 @@ static ngx_int_t ngx_http_fastdfs_proxy_create_request(ngx_http_request_t *r)
 {
 #define FDFS_REDIRECT_PARAM  "redirect=1"
 
- 	size_t                        len;
+	size_t                        len;
 	ngx_buf_t                    *b;
 	ngx_uint_t                    i;
 	ngx_chain_t                  *cl;
 	ngx_list_part_t              *part;
 	ngx_table_elt_t              *header;
 	ngx_http_upstream_t          *u;
+  char *p;
+	char url[4096];
+  char *the_url;
+  size_t url_len;
+  bool have_query;
 
 	u = r->upstream;
+  if (r->valid_unparsed_uri)
+  {
+    the_url = (char *)r->unparsed_uri.data;
+    url_len = r->unparsed_uri.len;
+    have_query = memchr(the_url, '?', url_len) != NULL;
+  }
+  else
+  {
+    if (r->uri.len + r->args.len + 1 >= sizeof(url))
+    {
+      ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
+          "url too long, exceeds %d bytes!", (int)sizeof(url));
+      return NGX_ERROR;
+    }
 
-	len = r->method_name.len + 1 + r->unparsed_uri.len + 1 + 
+    p = url;
+    memcpy(p, r->uri.data, r->uri.len);
+    p += r->uri.len;
+    if (r->args.len > 0)
+    {
+      *p++ = '?';
+      memcpy(p, r->args.data, r->args.len);
+      p += r->args.len;
+      have_query = true;
+    }
+    else
+    {
+      have_query = false;
+    }
+
+    the_url = url;
+    url_len = p - url;
+  }
+
+	len = r->method_name.len + 1 + url_len + 1 + 
 		sizeof(FDFS_REDIRECT_PARAM) - 1 + 1 + 
 		sizeof(ngx_http_fastdfs_proxy_version) - 1 + sizeof(CRLF) - 1;
 
@@ -455,9 +493,9 @@ static ngx_int_t ngx_http_fastdfs_proxy_create_request(ngx_http_request_t *r)
 	*b->last++ = ' ';
 
 	u->uri.data = b->last;
-	b->last = ngx_cpymem(b->last, r->unparsed_uri.data, r->unparsed_uri.len);
+	b->last = ngx_cpymem(b->last, the_url, url_len);
 
-	if (memchr((char *)r->unparsed_uri.data, '?', r->unparsed_uri.len) != NULL)
+	if (have_query)
 	{
 		*b->last++ = '&';
 	}
@@ -813,7 +851,7 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	char *p;
 
 	if (!(r->method & (NGX_HTTP_GET | NGX_HTTP_HEAD))) {
-       		return NGX_HTTP_NOT_ALLOWED;
+		return NGX_HTTP_NOT_ALLOWED;
 	}
 
 	rc = ngx_http_discard_request_body(r);
@@ -826,7 +864,7 @@ static ngx_int_t ngx_http_fastdfs_handler(ngx_http_request_t *r)
 	{
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, 
 			"url too long, exceeds %d bytes!", (int)sizeof(url));
-        	return HTTP_BADREQUEST;
+		return HTTP_BADREQUEST;
 	}
 
 	p = url;
