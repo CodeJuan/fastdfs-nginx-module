@@ -1,8 +1,10 @@
 
-Version 1.16  2013-08-30
+Version 1.16  2014-05-04
  * mod_fastdfs.conf remove parameter: http.need_find_content_type
  * bug fixed: remove flv duplicate start variable define
  * flv support end parameter
+ * bug fixed: in function proxy_create_request, use r->unparsed_uri
+   when r->valid_unparsed_uri is true, otherwise use r->uri and r->args
 
 Version 1.15  2013-01-13
  * add storage server port config with multi groups
