@@ -1,0 +1,1 @@
+FastDFS nginx module on storage server for download file
